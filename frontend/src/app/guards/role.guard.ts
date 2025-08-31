@@ -1,5 +1,5 @@
 import { CanActivateFn } from '@angular/router';
 
-export const roleGuard: CanActivateFn = (route, state) => {
+export const RoleGuard: CanActivateFn = (route, state) => {
   return true;
 };
