@@ -3,6 +3,5 @@ export interface Group {
     name: string;
     adminId: string[];
     channelId: string[];
-    creator: string; 
   }
   
