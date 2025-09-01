@@ -23,6 +23,7 @@ export class StorageService {
       password:'123', 
       role:['SUPER_ADMIN'], 
       groups:[] };
+      
     localStorage.setItem(this.User, JSON.stringify([superUser]));
     localStorage.setItem(this.Group, '[]'); localStorage.setItem(this.Channel, '[]');
     localStorage.setItem(this.Session, 'null');
