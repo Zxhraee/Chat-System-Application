@@ -1,1 +1,25 @@
-<p>menu works!</p>
+<div>
+    <button (click)="logout()">
+        Logout
+    </button>
+</div>
+
+<section>
+    <h1 style="margin-top:0;">Chat System</h1>
+  
+    <p *ngIf="user()">Welcome
+      <strong>{{ user()!.username }}!</strong><br>
+      <small>Role: {{ user()!.role }}</small>
+    </p>
+  
+    <div>
+      <a *ngIf="isGroupAdminorSuperAdmin()" routerLink="/groups">
+        Manage Groups & Channels
+      </a>
+  
+      <a *ngIf="isSuperAdmin()" routerLink="/users">
+        Manage Users
+      </a>
+    </div>
+  </section>
+  

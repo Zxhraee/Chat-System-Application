@@ -10,7 +10,7 @@ import { ChatComponent } from './pages/chat/chat.component';
 
 export const routes: Routes = [
     { path: 'login', component: LoginComponent },
-    { path: 'dashboard', component: MenuComponent, canActivate: [AuthGuard] },
+    { path: 'menu', component: MenuComponent, canActivate: [AuthGuard] },
     { path: 'users', component: UsersComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['SUPER'] } },
     { path: 'groups', component: GroupsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER'] } },
     { path: 'groups/:id/channels', component: ChannelsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER'] } },
