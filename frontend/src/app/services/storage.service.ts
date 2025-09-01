@@ -21,7 +21,7 @@ export class StorageService {
       username:'super', 
       email:'superuser@gmail.com',
       password:'123', 
-      role:['SUPER_ADMIN'], 
+      role:'SUPER_ADMIN', 
       groups:[] };
       
     localStorage.setItem(this.User, JSON.stringify([superUser]));

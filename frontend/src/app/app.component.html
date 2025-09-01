@@ -1,8 +1,18 @@
-<nav>
-  <a routerLink="/login">Login</a> |
-  <a routerLink="/dashboard">Dashboard</a> |
-  <a routerLink="/users">Users</a> |
-  <a routerLink="/groups">Groups</a>
-</nav>
+<header *ngIf="user() as user" class="navbar">
+  <div class="left">
+    <a routerLink="/menu" >Chat System</a>
+
+    <a routerLink="/menu" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Menu</a>
+
+    <a *ngIf="isGroupAdminorSuperAdmin()" routerLink="/groups" routerLinkActive="active">Groups</a>
+
+    <a *ngIf="isSuperAdmin()" routerLink="/users" routerLinkActive="active">Users</a>
+  </div>
+
+  <div class="right">
+    <span class="user-display">{{ user.username }} - <small>({{ user.role }})</small></span>
+    <button type="button" (click)="logout()">Logout</button>
+  </div>
+</header>
 
 <router-outlet></router-outlet>

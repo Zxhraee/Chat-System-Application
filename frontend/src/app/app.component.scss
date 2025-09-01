@@ -1,0 +1,12 @@
+.topbar {
+    position: sticky; top: 0;
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 12px; padding: 10px 16px; border-bottom: 1px solid #eee; background: #fff;
+  }
+  .left, .right { display: flex; align-items: center; gap: 12px; }
+  a { text-decoration: none; padding: 4px 6px; border-radius: 6px; }
+  a.active { background: #f0f4ff; }
+  .who { opacity: 0.85; }
+  button { padding: 6px 10px; border: 1px solid #ddd; background: #fafafa; cursor: pointer; border-radius: 6px; }
+  button:hover { background: #f2f2f2; }
+  
