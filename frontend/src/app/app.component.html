@@ -1,6 +1,6 @@
 <header *ngIf="user() as user" class="navbar">
   <div class="left">
-    <a routerLink="/menu" >Chat System</a>
+    <p>Chat System</p>
 
     <a routerLink="/menu" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Menu</a>
 
@@ -10,7 +10,9 @@
   </div>
 
   <div class="right">
-    <span class="user-display">{{ user.username }} - <small>{{ user.role }}</small></span>
+    <span class="user-display">
+      {{ user.username }} - <small>{{ user.role.replace('_', ' ') }}</small>
+    </span>    
     <button type="button" (click)="logout()">Logout</button>
   </div>
 </header>

@@ -12,7 +12,7 @@ import { User } from './models/user';
   styleUrl: './app.component.scss'
 })
 export class AppComponent {
-  title = 'chat-frontend';
+  title = 'Chat System';
 
   constructor(private auth: AuthService, private router: Router) {}
 

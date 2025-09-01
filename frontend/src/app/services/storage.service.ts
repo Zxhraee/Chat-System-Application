@@ -18,7 +18,7 @@ export class StorageService {
   private seed(){
     const superUser = { 
       id: crypto.randomUUID(), 
-      username:'super', 
+      username:'Super', 
       email:'superuser@gmail.com',
       password:'123', 
       role:'SUPER_ADMIN', 

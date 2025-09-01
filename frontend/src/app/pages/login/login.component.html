@@ -1,3 +1,7 @@
+<header class="app-header">
+  Chat Systems
+</header>
+
 <h2>Login</h2>
 
 <form (ngSubmit)="submit()">
@@ -14,5 +18,4 @@
   <button type="submit">Login</button>
 </form>
 
-<p *ngIf="error" style="color:red">{{ error }}</p>
-
+<p *ngIf="error">{{ error }}</p>
