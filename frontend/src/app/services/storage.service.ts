@@ -56,4 +56,12 @@ export class StorageService {
   setSession(v: { userId: string } | null) {
     localStorage.setItem(this.Session, JSON.stringify(v));
   }
+
+  getCurrentUser(): User | null {
+    try {
+      return JSON.parse(localStorage.getItem(this.Session) || 'null');
+    } catch {
+      return null;
+    }
+  }
 }
