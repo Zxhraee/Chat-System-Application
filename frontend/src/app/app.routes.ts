@@ -14,7 +14,8 @@ export const routes: Routes = [
     { path: 'users', component: UsersComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['SUPER'] } },
     { path: 'groups', component: GroupsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER'] } },
     { path: 'groups/:id/channels', component: ChannelsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER'] } },
-    { path: 'chat/:groupId/:channelId', component: ChatComponent, canActivate: [AuthGuard] },
+    { path: 'chat/:groupId', pathMatch: 'full', redirectTo: 'chat/:groupId/_' },
+    { path: 'chat/:groupId/:channelId', component: ChatComponent },
     { path: '', pathMatch: 'full', redirectTo: 'login' },
     { path: '**', redirectTo: 'login' }
   ];

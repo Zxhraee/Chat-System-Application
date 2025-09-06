@@ -1,42 +1,40 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Observable } from 'rxjs';
 import { StorageService } from './storage.service';
 import { AuthService } from './auth.service';
 import { ChatMessage } from '../models/message';
 
 @Injectable({ providedIn: 'root' })
 export class ChatService {
-  private _messages$ = new BehaviorSubject<ChatMessage[]>([]);
-  messages$ = this._messages$.asObservable();
-
-  private activeChannelId: string | null = null;
+  private streams = new Map<string, BehaviorSubject<ChatMessage[]>>();
 
   constructor(private store: StorageService, private auth: AuthService) {}
 
-  setChannel(id: string) {
-    this.activeChannelId = id;
-    this._messages$.next(this.store.getMessagesForChannel(id));
+  messages$(channelId: string): Observable<ChatMessage[]> {
+    let s = this.streams.get(channelId);
+    if (!s) {
+      s = new BehaviorSubject<ChatMessage[]>(this.store.getMessagesForChannel(channelId));
+      this.streams.set(channelId, s);
+    }
+    return s.asObservable();
   }
 
-  load(channelId?: string): ChatMessage[] {
-    const id = channelId ?? this.activeChannelId;
-    const list = id ? this.store.getMessagesForChannel(id) : [];
-    this._messages$.next(list);
-    return list;
+  private refresh(channelId: string) {
+    const s = this.streams.get(channelId);
+    if (s) s.next(this.store.getMessagesForChannel(channelId));
   }
 
-  send(args: { text: string; channelId?: string }): ChatMessage | null {
+  send(channelId: string, text: string): ChatMessage | null {
     const me = this.auth.currentUser();
-    if (!me) return null;
-
-    const id = args.channelId ?? this.activeChannelId; 
-    if (!id) return null;
-
-    const msg = this.store.sendMessage(id, me.id, args.text);
-    if (msg) this._messages$.next(this.store.getMessagesForChannel(id));
+    if (!me || !text.trim()) return null;
+    const msg = this.store.sendMessage(channelId, me.id, text);
+    if (msg) this.refresh(channelId);
     return msg;
   }
 
-  sendMessage(id: string, text: string) { return this.send({ channelId: id, text: text }); }
-  getMessages(id: string) { return this.load(id); }
+  getMessages(channelId: string): ChatMessage[] {
+    const list = this.store.getMessagesForChannel(channelId);
+    this.refresh(channelId);
+    return list;
+  }
 }

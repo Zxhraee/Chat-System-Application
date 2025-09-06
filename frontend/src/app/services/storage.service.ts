@@ -34,12 +34,15 @@ export class StorageService {
     ];
 
     const groups: Group[] = [
-      { id:'G1', name:'General',     adminIds:['U1'],       createdBy:'U1', channelId:['C1','C2'] },
-      { id:'G2', name:'Mathematics', adminIds:['U3','U1'],  createdBy:'U3', channelId:['C3','C4'] },
-      { id:'G3', name:'Science',     adminIds:['U1'],       createdBy:'U1', channelId:['C5','C6','C7'] },
+      { id:'G1', name:'General', adminIds:['U1'], createdBy:'U1', channelId:['C1','C2'] },
+      { id:'G2', name:'Mathematics', adminIds:['U3','U1'], createdBy:'U3', channelId:['C3','C4'] },
+      { id:'G3', name:'Science', adminIds:['U1'], createdBy:'U1', channelId:['C5','C6','C7'] },
+      { id:'G4', name:'English', adminIds:['U1','U3','U2'], createdBy:'U1', channelId:['C8','C9'] },
+
     ];
 
     const channels: Channel[] = [
+      { id:'C_GLOBAL', groupId:'GLOBAL', name:'General', memberId: users.map(u=>u.id) },
       { id:'C1', groupId:'G1', name:'Main',     memberId:['U1','U2'] },
       { id:'C2', groupId:'G1', name:'Help',     memberId:['U1','U2'] },
       { id:'C3', groupId:'G2', name:'Algebra',  memberId:['U2','U3'] },
@@ -47,6 +50,8 @@ export class StorageService {
       { id:'C5', groupId:'G3', name:'Biology',  memberId:['U1','U4'] },
       { id:'C6', groupId:'G3', name:'Chemistry',memberId:['U1','U4'] },
       { id:'C7', groupId:'G3', name:'Physics',  memberId:['U1','U4'] },
+      { id:'C8', groupId:'G4', name:'Literature',  memberId:['U1','U3','U2', 'U4'] },
+      { id:'C9', groupId:'G4', name:'Vocabulary',  memberId:['U1','U3','U2', 'U4'] },
     ];
 
     localStorage.setItem(this.Keys.User, JSON.stringify(users));
@@ -103,22 +108,57 @@ export class StorageService {
     return this.getGroups().find(g => g.id === id) ?? null;
   }
 
-  addGroup(name: string, creatorId: string): Group {
+  getChannels(): Channel[] {
+    return JSON.parse(localStorage.getItem(this.Keys.Channel) || '[]');
+  }
+  setChannels(chs: Channel[]) {
+    localStorage.setItem(this.Keys.Channel, JSON.stringify(chs));
+  }
+  getChannelById(id: string): Channel | null {
+    return this.getChannels().find(c => c.id === id) ?? null;
+  }
+  getChannelsByGroup(groupId: string): Channel[] {
+    return this.getChannels().filter(c => c.groupId === groupId);
+  }
+  addChannel(groupId: string, name = 'main', memberIds: string[] = []): Channel {
+    const channels = this.getChannels();
+    const id = this.nextId('C');
+    const ch: Channel = { id, groupId, name, memberId: memberIds };
+    channels.push(ch);
+    this.setChannels(channels);
+    const groups = this.getGroups();
+    const g = groups.find(x => x.id === groupId);
+    if (g && !g.channelId.includes(id)) {
+      g.channelId.push(id);
+      this.setGroups(groups);
+    }
+    return ch;
+  }
+
+  ensureDefaultChannel(groupId: string, creatorId?: string): Channel {
+    const existing = this.getChannelsByGroup(groupId);
+    if (existing.length) return existing[0];
+    return this.addChannel(groupId, 'main', creatorId ? [creatorId] : []);
+  }
+
+  addGroup(name: string, creatorId: string): { group: Group; firstChannel: Channel } {
     const groups = this.getGroups();
     const id = this.nextId('G');
     const g: Group = { id, name, adminIds: [creatorId], createdBy: creatorId, channelId: [] };
     groups.push(g);
     this.setGroups(groups);
-
+  
     const users = this.getUsers();
     const creator = users.find(u => u.id === creatorId);
     if (creator && !creator.groups.includes(id)) {
       creator.groups.push(id);
       this.setUsers(users);
     }
-    return g;
+    const firstChannel = this.ensureDefaultChannel(id, creatorId);
+    return { group: g, firstChannel };
   }
 
+  
   renameGroup(groupId: string, name: string): Group | null {
     const groups = this.getGroups();
     const g = groups.find(x => x.id === groupId);
@@ -128,20 +168,27 @@ export class StorageService {
     return g;
   }
 
-  deleteGroup(groupId: string): boolean {
-    const groups = this.getGroups().filter(g => g.id !== groupId);
-    this.setGroups(groups);
-    const users = this.getUsers();
-    users.forEach(u => u.groups = u.groups.filter(id => id !== groupId));
-    this.setUsers(users);
-    const msgs = this.getAllMessages();
-    this.setAllMessages(msgs);
-    const req = this.getRequests();
-    delete req[groupId];
-    this.setRequests(req);
-    return true;
-  }
+deleteGroup(groupId: string): boolean {
+  const groups = this.getGroups().filter(g => g.id !== groupId);
+  this.setGroups(groups);
 
+  const users = this.getUsers();
+  users.forEach(u => (u.groups = u.groups.filter(id => id !== groupId)));
+  this.setUsers(users);
+
+  const allChannels = this.getChannels();
+  const removed = allChannels.filter(c => c.groupId === groupId).map(c => c.id);
+  const kept = allChannels.filter(c => c.groupId !== groupId);
+  this.setChannels(kept);
+
+  const msgs = this.getAllMessages().filter(m => !removed.includes(m.channelId));
+  this.setAllMessages(msgs);
+
+  const req = this.getRequests();
+  delete req[groupId];
+  this.setRequests(req);
+  return true;
+}
   getGroupsForUser(userId: string): Group[] {
     const u = this.getUsers().find(x => x.id === userId);
     if (!u) return [];
