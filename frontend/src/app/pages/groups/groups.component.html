@@ -1,1 +1,67 @@
-<p>groups works!</p>
+<h2>Groups</h2>
+
+<section *ngIf="canCreateGroup()">
+  <h3>Create group</h3>
+  <form (ngSubmit)="createGroup()">
+    <input [(ngModel)]="newGroupName" name="groupName" placeholder="Group name" required />
+    <button type="submit">Create</button>
+  </form>
+</section>
+
+<section>
+  <h3>My groups</h3>
+  <ul>
+    <li *ngFor="let g of myGroups">
+      <strong>{{ g.name }}</strong> ({{ g.id }})
+      <span *ngIf="isCreator(g)"> • creator</span>
+      <span *ngIf="isAdmin(g)"> • admin</span>
+      <div>
+        <button (click)="openChannels(g.id)">Open channels</button>
+        <button (click)="leave(g.id)" *ngIf="!isCreator(g)">Leave</button>
+        <button (click)="rename(g)" *ngIf="canModify(g)">Rename</button>
+        <button (click)="remove(g.id)" *ngIf="canModify(g)">Delete</button>
+      </div>
+
+      <div *ngIf="canAdmin(g)" style="margin-top:6px">
+        <input [(ngModel)]="usernameToAdd" name="u-{{g.id}}" placeholder="username to add" />
+        <button (click)="addMemberByUsername(g.id)">Add member</button>
+
+        <input [(ngModel)]="usernameToPromote" name="p-{{g.id}}" placeholder="username to promote" />
+        <button (click)="requestPromotion(g.id)">Request promote (needs SUPER approval)</button>
+      </div>
+
+      <div *ngIf="canAdmin(g)">
+        <h4>Pending join requests</h4>
+        <div *ngFor="let uid of joinRequests[g.id]">
+          {{ username(uid) }}
+          <button (click)="approveJoin(g.id, uid)">Approve</button>
+          <button (click)="rejectJoin(g.id, uid)">Reject</button>
+        </div>
+
+        <h4 *ngIf="isSuper">Pending promotions</h4>
+        <ng-container *ngIf="isSuper">
+            <div *ngFor="let uid of promoteRequests[g.id]">
+                {{ username(uid) }}
+          <button (click)="approvePromotion(g.id, uid)">Approve</button>
+          <button (click)="rejectPromotion(g.id, uid)">Reject</button>
+        </div>
+        </ng-container>
+      </div>
+    </li>
+  </ul>
+</section>
+
+<section>
+  <h3>All groups</h3>
+  <ul>
+    <li *ngFor="let g of allGroups">
+      <strong>{{ g.name }}</strong>
+      <button
+        *ngIf="!isSuper"
+        (click)="requestToJoin(g.id)"
+        [disabled]="isInGroup(g.id)">
+        Request to join
+      </button>
+    </li>
+  </ul>
+</section>

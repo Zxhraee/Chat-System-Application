@@ -1,5 +1,16 @@
 <h1 class="app-title">Chat System</h1>
 
+<h2>My Groups</h2>
+<div *ngIf="myGroups.length === 0">You don't belong to any groups yet.</div>
+
+<ul>
+  <li *ngFor="let g of myGroups">
+    <strong>{{ g.name }}</strong>
+    <button (click)="openGroupDefaultChannel(g)">Open group chat</button>
+    <a [routerLink]="['/groups', g.id, 'channels']" style="margin-left:8px">Browse channels</a>
+  </li>
+</ul>
+
 <section class="chat-shell" id="chat">
   <header class="chat-header">Chat</header>
 
