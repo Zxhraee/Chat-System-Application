@@ -4,7 +4,7 @@
 
     <a routerLink="/menu" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Menu</a>
 
-    <a *ngIf="isGroupAdminorSuperAdmin()" routerLink="/groups" routerLinkActive="active">Groups</a>
+    <a routerLink="/groups" routerLinkActive="active">Groups</a>
 
     <a *ngIf="isSuperAdmin()" routerLink="/users" routerLinkActive="active">Users</a>
   </div>

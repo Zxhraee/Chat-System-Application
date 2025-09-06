@@ -11,6 +11,11 @@ import { StorageService } from '../../services/storage.service';
 import { User } from '../../models/user';
 import { ChatMessage } from '../../models/message';
 
+import { Group } from '../../models/group';
+import { PermissionsService } from '../../services/permissions.service';
+
+
+
 @Component({
   selector: 'app-menu',
   standalone: true,
@@ -21,17 +26,44 @@ import { ChatMessage } from '../../models/message';
 export class MenuComponent implements OnInit, OnDestroy {
   messages: ChatMessage[] = [];
   input = '';
+  activeGroup: Group | null = null;  
+
+  me: User | null = null;
+  myGroups: Group[] = [];
+
   private sub?: Subscription;
 
   constructor(
     private auth: AuthService,
     private chat: ChatService,
     private storage: StorageService,
-    private router: Router
+    private router: Router,
+    private permissions: PermissionsService,
   ) {}
 
   ngOnInit(): void {
     this.sub = this.chat.messages$.subscribe(list => (this.messages = list));
+  
+    const currentUser = this.user();
+    if (currentUser) {
+      const myGroups = this.storage.getGroups().filter(g => currentUser.groups.includes(g.id));
+      this.activeGroup = myGroups[0] ?? null;
+  
+      const firstChannelId = this.activeGroup?.channelId[0];
+      if (firstChannelId) {
+        this.chat.setChannel(firstChannelId);
+        this.chat.load();
+      }
+  
+      this.myGroups = this.permissions.isSuperAdmin(currentUser)
+        ? this.storage.getGroups()
+        : myGroups;
+    }
+  }
+  
+
+  canAdminister(group: Group | null): boolean { 
+    return !!group && this.permissions.canAdministerGroup(this.user(), group);
   }
 
   ngOnDestroy(): void {
@@ -42,17 +74,12 @@ export class MenuComponent implements OnInit, OnDestroy {
     const text = this.input.trim();
     if (!text) return;
   
-    const u =
-      (typeof this.auth.currentUser === 'function' ? this.auth.currentUser() : null) ??
-      (typeof (this.storage as any).getCurrentUser === 'function' ? (this.storage as any).getCurrentUser() : null);
+    this.chat.send({ text });
   
-    const userId = u?.id ?? 'super';  
-    const username = u?.username ?? 'super'; 
-  
-    this.chat.send({ userId, username, text });
     this.input = '';
   }
 
+  
   user(): User | null {
     return this.auth.currentUser();
   }
@@ -74,5 +101,14 @@ export class MenuComponent implements OnInit, OnDestroy {
   logout(): void {
     this.auth.logout();
     this.router.navigate(['/login']);
+  }
+
+  openGroupDefaultChannel(g: Group) {
+    const first = g?.channelId?.[0];
+    if (first) {
+      this.router.navigate(['/chat', g.id, first]);
+    } else {
+      this.router.navigate(['/groups', g.id, 'channels']);
+    }
   }
 }
