@@ -35,6 +35,7 @@ export class MenuComponent implements OnInit, OnDestroy {
 
   private sub?: Subscription;
   private generalChannelId: string | null = null;   
+
   constructor(
     private auth: AuthService,
     private chat: ChatService,
@@ -51,6 +52,7 @@ export class MenuComponent implements OnInit, OnDestroy {
   
     const allGroups = (this.storage.getAllGroups?.() ?? this.storage.getGroups());
   
+    //Check User belong in Group
     const isInGroup = (g: Group) => {
       const u = currentUser;
       if (!u) return false;
@@ -59,12 +61,15 @@ export class MenuComponent implements OnInit, OnDestroy {
       return Array.isArray(u.groups) && u.groups.includes(g.id);
     };
   
+    //Exclude General Group
     const notGeneral = (g: Group) => !this.isGeneralGroup(g);
   
+    //User Group Views
     this.myGroups = isSuper
       ? allGroups.filter(notGeneral)
       : allGroups.filter(g => isInGroup(g) && notGeneral(g));
   
+    //Load General Group and Channels
     this.activeGroup = this.myGroups[0] ?? null;
     this.generalChannelId = this.resolveGeneralChannelId();
     this.refreshGeneralChannels();
@@ -83,6 +88,7 @@ export class MenuComponent implements OnInit, OnDestroy {
     this.refreshGeneralChannels();
   }
 
+  //Get General Group and Channels
   private getGeneralGroup(): Group | null {
     const groups = this.storage.getGroups();
     return (
@@ -106,6 +112,7 @@ export class MenuComponent implements OnInit, OnDestroy {
     this.channelId = this.generalChannelId ?? this.channels[0]?.id ?? null;
   }
 
+  //Change General Channels
   changeGeneralChannel(id: string | null): void {
     if (!id) return;
     this.channelId = id;
@@ -113,6 +120,7 @@ export class MenuComponent implements OnInit, OnDestroy {
     this.sub = this.chat.messages$(id).subscribe(list => (this.messages = list));
   }
   
+  //Navigate to channels
   goChannel(channelId: string | null): void {
     if (!channelId) return;
     const gen = this.getGeneralGroup();
@@ -123,6 +131,7 @@ export class MenuComponent implements OnInit, OnDestroy {
   trackByChan = (_: number, c: Channel) => c.id;
   trackByGroup = (_: number, g: Group) => g.id;
 
+  //Send Message
   send(): void {
     const text = this.input.trim();
     if (!text || !this.channelId) return;
@@ -130,7 +139,7 @@ export class MenuComponent implements OnInit, OnDestroy {
     if (sent) this.input = '';
   }
 
-
+  //Return General Group channels
   private resolveGeneralChannelId(): string | null {
     const groups = this.storage.getGroups();
     const generalGroup =
@@ -145,21 +154,25 @@ export class MenuComponent implements OnInit, OnDestroy {
 
   user(): User | null { return this.auth.currentUser(); }
 
+  //Check User Permissions
   canAdminister(group: Group | null): boolean { 
     return !!group && this.permissions.canAdministerGroup(this.user(), group);
   }
 
+  //Logout
   logout(): void {
     this.auth.logout();
     this.router.navigate(['/login']);
   }
 
+  //First Channel Id of Group
   openGroupDefaultChannel(g: Group) {
     const first = g?.channelId?.[0];
     if (first) this.router.navigate(['/chat', g.id, first]);
     else this.router.navigate(['/groups', g.id, 'channels']);
   }
 
+  //Check General Group
   isGeneralGroup(g: Group): boolean {
     return g?.id === 'GLOBAL' || (g?.name || '').toLowerCase() === 'general';
   }

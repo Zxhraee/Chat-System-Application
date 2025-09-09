@@ -11,8 +11,8 @@ import { RegisterComponent } from './pages/register/register.component';
 export const routes: Routes = [
     { path: 'login', component: LoginComponent },
     { path: 'menu', component: MenuComponent, canActivate: [AuthGuard] },
-    { path: 'users', component: UsersComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['SUPER'] } },
-    { path: 'groups', component: GroupsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER'] } },
+    { path: 'users', component: UsersComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['SUPER_ADMIN'] } },
+    { path: 'groups', component: GroupsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER_ADMIN'] } },
     { path: 'chat/:groupId', pathMatch: 'full', redirectTo: 'chat/:groupId/_' },
     { path: 'chat/:groupId/:channelId', component: ChatComponent },
     { path: 'register', component: RegisterComponent },

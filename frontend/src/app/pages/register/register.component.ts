@@ -20,6 +20,7 @@ export class RegisterComponent {
 
   constructor(private store: StorageService, private router: Router) {}
 
+  //Create New User
   submit() {
     this.error = '';
     this.success = '';
@@ -30,6 +31,7 @@ export class RegisterComponent {
       return;
     }
 
+    //If Sucess, clear inputs and navigate to login 
     this.success = 'Account created! Please log in.';
     this.username = this.email = this.password = '';
     setTimeout(() => this.router.navigate(['/login']), 0);

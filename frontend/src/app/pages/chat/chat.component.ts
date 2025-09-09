@@ -19,13 +19,16 @@ import { Channel } from '../../models/channel';
   styleUrls: ['./chat.component.scss'],
 })
 export class ChatComponent implements OnInit, OnDestroy {
+  //Messages in chat and input for messages
   messages: ChatMessage[] = [];
   input = '';
 
+  //Active Group, Active Channels and All channels in group
   activeGroup: Group | null = null;
   activeChannelName = '';
   channels: Channel[] = [];
 
+  //Route and message stream Sub
   private routeSub?: Subscription;
   private streamSub?: Subscription;
 
@@ -45,16 +48,19 @@ export class ChatComponent implements OnInit, OnDestroy {
       let cid = params.get('channelId');
       if (!gid) return;
 
+      //Loud group and channel list 
       this.groupId = gid;
       this.activeGroup = this.store.getGroupById(gid);
       this.channels = this.store.getChannelsByGroup(gid);
 
+      //If channel missing, jump to next. Create Default main channel if none
       if (!cid || cid === '_') {
         const first = this.store.getFirstChannelId(gid) ?? this.store.ensureDefaultChannel(gid).id;
         this.router.navigate(['/chat', gid, first], { replaceUrl: true });
         return;
       }
 
+      //Channel Validation
       const ch = this.store.getChannelById(cid);
       if (!ch || ch.groupId !== gid) {
         const first = this.store.getFirstChannelId(gid) ?? this.store.ensureDefaultChannel(gid).id;
@@ -65,16 +71,19 @@ export class ChatComponent implements OnInit, OnDestroy {
       this.channelId = cid;
       this.activeChannelName = ch.name;
 
+      //Resub channel stream upon change
       this.streamSub?.unsubscribe();
       this.streamSub = this.chat.messages$(this.channelId)
         .subscribe((list: ChatMessage[]) => (this.messages = list));
     });
   }
 
+  //Nav to new channel route
   goChannel(id: string) {
     if (id && id !== this.channelId) this.router.navigate(['/chat', this.groupId, id]);
   }
 
+  //Send chat message
   send(): void {
     const text = this.input.trim();
     if (!text || !this.channelId) return;

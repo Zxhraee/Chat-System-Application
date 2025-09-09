@@ -20,10 +20,12 @@ export class UsersComponent {
     private router: Router
   ) {}
 
+  //Get current logged in user details
   get current(): User | null {
     return this.auth.currentUser() ?? this.storage.getCurrentUser();
   }
 
+  //Delete account
   deleteMe(): void {
     const u = this.current;
     if (!u) return;
