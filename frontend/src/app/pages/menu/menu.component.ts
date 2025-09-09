@@ -12,6 +12,8 @@ import { PermissionsService } from '../../services/permissions.service';
 import { User } from '../../models/user';
 import { ChatMessage } from '../../models/message';
 import { Group } from '../../models/group';
+import { Channel } from '../../models/channel';
+
 
 @Component({
   selector: 'app-menu',
@@ -28,6 +30,9 @@ export class MenuComponent implements OnInit, OnDestroy {
   me: User | null = null;
   myGroups: Group[] = [];
 
+  channels: Channel[] = [];
+  channelId: string | null = null;
+
   private sub?: Subscription;
   private generalChannelId: string | null = null;   
   constructor(
@@ -40,29 +45,88 @@ export class MenuComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     const currentUser = this.user();
-    if (currentUser) {
-      const myGroups = this.storage.getGroups().filter(g => currentUser.groups.includes(g.id));
-      this.activeGroup = myGroups[0] ?? null;
-
-      this.myGroups = this.permissions.isSuperAdmin(currentUser)
-        ? this.storage.getGroups()
-        : myGroups;
-    }
-
+    if (!currentUser) return;
+  
+    const isSuper = this.permissions.isSuperAdmin(currentUser);
+  
+    const allGroups = (this.storage.getAllGroups?.() ?? this.storage.getGroups());
+  
+    const isInGroup = (g: Group) => {
+      const u = currentUser;
+      if (!u) return false;
+      if (g.createdBy === u.id) return true;
+      if (Array.isArray(g.adminIds) && g.adminIds.includes(u.id)) return true;
+      return Array.isArray(u.groups) && u.groups.includes(g.id);
+    };
+  
+    const notGeneral = (g: Group) => !this.isGeneralGroup(g);
+  
+    this.myGroups = isSuper
+      ? allGroups.filter(notGeneral)
+      : allGroups.filter(g => isInGroup(g) && notGeneral(g));
+  
+    this.activeGroup = this.myGroups[0] ?? null;
     this.generalChannelId = this.resolveGeneralChannelId();
-
-    if (this.generalChannelId) {
-      this.sub = this.chat.messages$(this.generalChannelId)
-        .subscribe((list: ChatMessage[]) => (this.messages = list));
+    this.refreshGeneralChannels();
+    
+    if (this.channelId) {
+      this.sub = this.chat.messages$(this.channelId)
+        .subscribe(list => (this.messages = list));
     }
-  }
+    }
 
   ngOnDestroy(): void { this.sub?.unsubscribe(); }
 
+  selectGroup(g: Group): void {
+    this.activeGroup = g;
+    this.generalChannelId = this.resolveGeneralChannelId();
+    this.refreshGeneralChannels();
+  }
+
+  private getGeneralGroup(): Group | null {
+    const groups = this.storage.getGroups();
+    return (
+      groups.find(g => g.id === 'GLOBAL') ??
+      groups.find(g => (g.name || '').toLowerCase() === 'general') ??
+      null
+    );
+  }
+  
+  private refreshGeneralChannels(): void {
+    const gen = this.getGeneralGroup();
+    if (!gen) { this.channels = []; this.channelId = null; return; }
+  
+    this.channels = this.storage.getChannelsByGroup(gen.id);
+    if (!this.channels.length) {
+      const created = this.storage.ensureDefaultChannel(gen.id);
+      const _newId = (created as any)?.id ?? created;
+      this.channels = this.storage.getChannelsByGroup(gen.id);
+    }
+  
+    this.channelId = this.generalChannelId ?? this.channels[0]?.id ?? null;
+  }
+
+  changeGeneralChannel(id: string | null): void {
+    if (!id) return;
+    this.channelId = id;
+    this.sub?.unsubscribe();
+    this.sub = this.chat.messages$(id).subscribe(list => (this.messages = list));
+  }
+  
+  goChannel(channelId: string | null): void {
+    if (!channelId) return;
+    const gen = this.getGeneralGroup();
+    if (!gen) return;
+    this.router.navigate(['/chat', gen.id, channelId]);
+  }
+
+  trackByChan = (_: number, c: Channel) => c.id;
+  trackByGroup = (_: number, g: Group) => g.id;
+
   send(): void {
     const text = this.input.trim();
-    if (!text || !this.generalChannelId) return;
-    const sent = this.chat.send(this.generalChannelId, text);
+    if (!text || !this.channelId) return;
+    const sent = this.chat.send(this.channelId, text);
     if (sent) this.input = '';
   }
 

@@ -29,8 +29,8 @@ export class StorageService {
     const users: User[] = [
       { id: 'U1', username: 'Super', email: 'superuser@gmail.com', password: '123', role: 'SUPER_ADMIN', groups: ['G1', 'G2', 'G3'] },
       { id: 'U2', username: 'Zahra', email: 'zahraanamkhan@gmail.com', password: '123', role: 'USER', groups: ['G1', 'G2'] },
-      { id: 'U3', username: 'Anam', email: 'anamzahrakhan@gmail.com', password: '123', role: 'GROUP_ADMIN', groups: ['G2'] },
-      { id: 'U4', username: 'Student', email: 'anam.khan@griffithuni.edu.au', password: '123', role: 'USER', groups: ['G3'] },
+      { id: 'U3', username: 'Anam', email: 'anamzahrakhan@gmail.com', password: '123', role: 'GROUP_ADMIN', groups: ['G1','G2'] },
+      { id: 'U4', username: 'Student', email: 'anam.khan@griffithuni.edu.au', password: '123', role: 'USER', groups: ['G1','G3', 'G4'] },
     ];
 
     const groups: Group[] = [
@@ -74,10 +74,18 @@ export class StorageService {
     username = username.trim();
     if (!username || !email.trim() || !password.trim()) return null;
     if (this.getUserByUsername(username)) return null;
-
+  
     const users = this.getUsers();
     const id = this.nextId('U');
-    const u: User = { id, username, email, password, role: 'USER', groups: [] };
+    const u: User = {
+      id,
+      username,
+      email,
+      password,
+      role: 'USER',
+      groups: ['G1'] 
+    };
+  
     users.push(u);
     this.setUsers(users);
     return u;
@@ -92,6 +100,10 @@ export class StorageService {
     const msgs = this.getAllMessages().filter(m => m.userId !== userId);
     this.setAllMessages(msgs);
     return true;
+  }
+
+  getAllGroups(): Group[] {
+    return JSON.parse(localStorage.getItem('key_groups') || '[]');
   }
 
   setUserRole(userId: string, role: User['role']) {
@@ -263,6 +275,13 @@ export class StorageService {
     }
   }
 
+  private Bans = 'key_bans';
+
+  isBanned(channelId: string, userId: string): boolean {
+  const bans = JSON.parse(localStorage.getItem(this.Bans) || '[]');
+  return bans.some((b: any) => b.channelId === channelId && b.userId === userId);
+}
+
   private setAllMessages(msgs: ChatMessage[]) {
     localStorage.setItem(this.Keys.Messages, JSON.stringify(Array.isArray(msgs) ? msgs : []));
   }
@@ -339,10 +358,7 @@ export class StorageService {
 
   private getBans(): Bans { return JSON.parse(localStorage.getItem(this.Keys.Bans) || '{}'); }
   private setBans(v: Bans) { localStorage.setItem(this.Keys.Bans, JSON.stringify(v)); }
-  isBanned(channelId: string, userId: string): boolean {
-    const b = this.getBans()[channelId] ?? [];
-    return b.includes(userId);
-  }
+
   banUser(channelId: string, userId: string): void {
     const b = this.getBans();
     b[channelId] = b[channelId] ?? [];

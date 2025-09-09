@@ -15,9 +15,15 @@
     <input [(ngModel)]="password" name="password" type="password" required>
   </label>
 
+  <div class="button-container">
   <button type="submit">Login</button>
+  </div>
 </form>
 
 <p *ngIf="error">{{ error }}</p>
 
-<button routerLink="/register">Create account</button>
+<div class="button-container">
+<button routerLink="/register" class="register-btn">
+  Create account
+</button>
+</div>

@@ -1,111 +1,236 @@
-<h2>Groups</h2>
+<h2 class="page-title">Groups</h2>
 
-<section *ngIf="canCreateGroup()">
-    <h3>Create group</h3>
-    <form (ngSubmit)="createGroup()">
-        <input [(ngModel)]="newGroupName" name="groupName" placeholder="Group name" required />
-        <button type="submit">Create</button>
-    </form>
+<section *ngIf="canCreateGroup()" class="section narrow">
+  <h3 class="section-title">Create group</h3>
+  <form (ngSubmit)="createGroup()" class="create-form">
+    <input [(ngModel)]="newGroupName" name="groupName" placeholder="Group name" required />
+    <button type="submit" class="btn btn-accent">Create</button>
+  </form>
 </section>
+<section *ngIf="isSuper" class="section narrow">
+    <h3 class="section-title">Upgrade user to SUPER</h3>
+    <div class="create-form">
+      <select [(ngModel)]="upgradeUserIdGlobal" name="su-global">
+        <option [ngValue]="null">Select user…</option>
+        <option *ngFor="let u of getUpgradableUsers()" [ngValue]="u.id">
+          {{ displayName(u) }}
+        </option>
+      </select>
+      <button class="btn btn-accent"
+              (click)="upgradeToSuperGlobal()"
+              [disabled]="!upgradeUserIdGlobal">
+        Upgrade
+      </button>
+    </div>
+  </section>
+  
 
-<section>
-    <h3>My groups</h3>
-    <ul>
-        <li *ngFor="let g of myGroups">
-            <strong>{{ g.name }}</strong> ({{ g.id }})
-            <span *ngIf="isCreator(g)"> • creator</span>
-            <span *ngIf="isAdmin(g)"> • admin</span>
-            <div>
-                <button (click)="leave(g.id)" *ngIf="!isCreator(g)">Leave</button>
-                <button (click)="rename(g)" *ngIf="canModify(g)">Rename</button>
-                <button (click)="remove(g.id)" *ngIf="canModify(g)">Delete</button>
-            </div>
+  <section class="section wide">
+    <h3 class="section-title">My groups</h3>
 
-            <div *ngIf="canAdmin(g)" style="margin-top:6px">
-                <input [(ngModel)]="usernameToAdd" name="u-{{g.id}}" placeholder="username to add" />
-                <button (click)="addMemberByUsername(g.id)">Add member</button>
+  <div *ngIf="myGroups.length === 0" class="empty-msg">
+    You’re not in any groups yet.
+  </div>
 
-                <input [(ngModel)]="usernameToPromote" name="p-{{g.id}}" placeholder="username to promote" />
-                <button (click)="requestPromotion(g.id)">Request promote (needs SUPER approval)</button>
-            </div>
+  <ul class="groups-grid">
+    <li *ngFor="let g of myGroups" class="group-card">
+      <div class="group-head">
+        <div class="group-title">
+          <strong class="group-name">{{ g.name }}</strong>
+          <code class="group-id">{{ g.id }}</code>
+        </div>
+        <div class="group-badges">
+          <span class="badge" *ngIf="isCreator(g)">Creator</span>
+          <span class="badge badge-outline" *ngIf="isAdmin(g)">Admin</span>
+          <span class="badge badge-muted" *ngIf="isGeneralGroup(g)">General</span>
+        </div>
+      </div>
 
-            <div *ngIf="canAdmin(g)">
-                <h4>Pending join requests</h4>
-                <div *ngFor="let uid of joinRequests[g.id]">
-                    {{ username(uid) }}
-                    <button (click)="approveJoin(g.id, uid)">Approve</button>
-                    <button (click)="rejectJoin(g.id, uid)">Reject</button>
-                </div>
+      <div class="group-actions">
+        <button class="btn btn-danger"
+                (click)="leave(g.id)"
+                *ngIf="!isCreator(g) && !isGeneralGroup(g)">
+          Leave
+        </button>
+        <button class="btn btn-subtle" (click)="rename(g)" *ngIf="canModify(g)">Rename</button>
+        <button class="btn btn-danger-outline"
+                (click)="remove(g.id)"
+                *ngIf="canModify(g) && !isGeneralGroup(g)">
+          Delete
+        </button>
+      </div>
 
-                <div *ngIf="isSuper" style="margin-top:6px">
-                    <input [(ngModel)]="usernameToPromote" name="sp-{{g.id}}" placeholder="username to promote" />
-                    <button (click)="promoteNow(g.id)">Promote to Group Admin</button>
-                </div>
-
-                <div *ngIf="isSuper" style="margin-top:6px">
-                    <input [(ngModel)]="usernameToUpgrade" name="su-{{g.id}}"
-                        placeholder="username to upgrade to SUPER" />
-                    <button (click)="upgradeToSuper()">Upgrade to Super Admin</button>
-                </div>
-
-                <div *ngIf="isSuper" style="margin-top:6px">
-                    <input [(ngModel)]="usernameToRemove" name="sr-{{g.id}}"
-                        placeholder="username to delete (global)" />
-                    <button (click)="removeAnyUser()">Delete user (global)</button>
-                </div>
-
-                <div *ngIf="canAdmin(g)" style="margin-top:6px">
-                    <input [(ngModel)]="usernameToRemove" name="gr-{{g.id}}"
-                        placeholder="username to remove from group" />
-                    <button (click)="removeMemberFromGroup(g.id)">Remove from this group</button>
-                </div>
-
-                <div *ngIf="canAdmin(g)" style="margin-top:6px">
-                    <button (click)="addChannel(g.id)">Add Channel</button>
-                    <div *ngIf="canAdmin(g)" style="margin-top:6px">
-                        <label style="margin-right:6px;">Channel to remove:</label>
-                        <select [(ngModel)]="removeChannelId[g.id]" name="rc-{{g.id}}">
-                          <option [ngValue]="null">Select channel…</option>
-                          <option *ngFor="let c of channelsOf(g.id)" [ngValue]="c.id">
-                            {{ c.name }} ({{ c.id }})
-                          </option>
-                        </select>
-                        <button (click)="removeChannel(g.id)">Remove channel</button>
-                      </div>
-                </div>
-
-                <div *ngIf="canAdmin(g)" style="margin-top:10px; padding-top:8px;">
-                    <h4>Ban User & Report to Super Admin</h4>
-                    <select [(ngModel)]="banChannel[g.id]" name="bc-{{g.id}}">
-                        <option [ngValue]="null">Select channel…</option>
-                        <option *ngFor="let c of channelsOf(g.id)" [ngValue]="c.id">{{ c.name }} ({{ c.id }})</option>
-                    </select>
-                    <input [(ngModel)]="banUsername[g.id]" name="bu-{{g.id}}" placeholder="username to ban" />
-                    <input [(ngModel)]="banReason[g.id]" name="br-{{g.id}}" placeholder="reason" />
-                    <button (click)="banInChannel(g.id)">Ban & Report</button>
-                </div>
-
-                <h4 *ngIf="isSuper">Pending promotions</h4>
-                <ng-container *ngIf="isSuper">
-                    <div *ngFor="let uid of promoteRequests[g.id]">
-                        {{ username(uid) }}
-                        <button (click)="approvePromotion(g.id, uid)">Approve</button>
-                        <button (click)="rejectPromotion(g.id, uid)">Reject</button>
-                    </div>
-                </ng-container>
-            </div>
-        </li>
-    </ul>
-</section>
-
-<section *ngIf="!isSuper">
-    <h3>All groups</h3>
-    <ul>
-        <li *ngFor="let g of allGroups">
-            <strong>{{ g.name }}</strong>
-            <button (click)="requestToJoin(g.id)" [disabled]="isInGroup(g.id)">
-                Request to join
+      <div *ngIf="canAdmin(g) && !isGeneralGroup(g)" class="admin-panel">
+        <div class="row">
+          <label class="label">Add member</label>
+          <div class="controls">
+            <select [(ngModel)]="addMemberUserId[g.id]" name="add-{{g.id}}">
+              <option [ngValue]="null">Select user…</option>
+              <option *ngFor="let u of getAddableUsers(g.id)" [ngValue]="u.id">
+                {{ displayName(u) }}
+              </option>
+            </select>
+            <button class="btn btn-accent" (click)="addMemberByUsername(g.id)" [disabled]="!addMemberUserId[g.id]">
+              Add
             </button>
-        </li>
-    </ul>
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="label">Request promotion</label>
+          <div class="controls">
+            <select [(ngModel)]="promoteUserId[g.id]" name="prom-{{g.id}}">
+              <option [ngValue]="null">Select member…</option>
+              <option *ngFor="let u of getPromotableUsers(g.id)" [ngValue]="u.id">
+                {{ displayName(u) }}
+              </option>
+            </select>
+            <button class="btn" (click)="requestPromotion(g.id)" [disabled]="!promoteUserId[g.id]">
+              Request (needs SUPER)
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div *ngIf="canAdmin(g)" class="admin-panel">
+        <h4 class="subheading">Pending join requests</h4>
+        <div class="pending" *ngIf="(joinRequests[g.id] || []).length === 0">None</div>
+        <div class="pending-item" *ngFor="let uid of joinRequests[g.id]">
+          <span>{{ username(uid) }}</span>
+          <div class="controls">
+            <button class="btn btn-accent" (click)="approveJoin(g.id, uid)">Approve</button>
+            <button class="btn btn-subtle" (click)="rejectJoin(g.id, uid)">Reject</button>
+          </div>
+        </div>
+
+        <div *ngIf="isSuper" class="row">
+          <label class="label">Promote User</label>
+          <div class="controls">
+            <select [(ngModel)]="promoteUserId[g.id]" name="sp-{{g.id}}">
+              <option [ngValue]="null">Select member…</option>
+              <option *ngFor="let u of getPromotableUsers(g.id)" [ngValue]="u.id">
+                {{ displayName(u) }}
+              </option>
+            </select>
+            <button class="btn btn-accent" (click)="promoteNow(g.id)" [disabled]="!promoteUserId[g.id]">
+              Promote
+            </button>
+          </div>
+        </div>
+          
+        <div *ngIf="isSuper" class="row">
+            <label class="label">Delete user</label>
+            <div class="controls">
+              <select [(ngModel)]="removeUserIdGlobal[g.id]" name="sr-{{g.id}}">
+                <option [ngValue]="null">Select member…</option>
+                <option *ngFor="let u of getDeletableUsersInGroup(g.id)" [ngValue]="u.id">
+                  {{ displayName(u) }}
+                </option>
+              </select>
+              <button class="btn btn-danger-outline"
+                      (click)="removeAnyUser(g.id)"
+                      [disabled]="!removeUserIdGlobal[g.id]">
+                Delete
+              </button>
+            </div>
+          </div>
+          
+
+        <div class="row">
+          <label class="label">Remove from group</label>
+          <div class="controls">
+            <select [(ngModel)]="removeUserId[g.id]" name="rm-{{g.id}}">
+              <option [ngValue]="null">Select member…</option>
+              <option *ngFor="let u of getRemovableUsers(g.id)" [ngValue]="u.id">
+                {{ displayName(u) }}
+              </option>
+            </select>
+            <button class="btn btn-subtle" (click)="removeMemberFromGroup(g.id)" [disabled]="!removeUserId[g.id]">
+              Remove
+            </button>
+          </div>
+        </div>
+
+        <div class="row">
+          <label class="label">Channels</label>
+          <div class="controls">
+            <button class="btn" (click)="addChannel(g.id)">Add channel</button>
+            <div class="stack">
+              <select [(ngModel)]="removeChannelId[g.id]" name="rc-{{g.id}}">
+                <option [ngValue]="null">Select channel…</option>
+                <option *ngFor="let c of channelsOf(g.id)" [ngValue]="c.id">
+                  {{ c.name }} ({{ c.id }})
+                </option>
+              </select>
+              <button class="btn btn-subtle" (click)="removeChannel(g.id)">Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="danger-panel">
+          <h4 class="subheading">Ban user & report</h4>
+          <div class="row">
+            <label class="label">Channel</label>
+            <div class="controls">
+              <select [(ngModel)]="banChannel[g.id]" name="bc-{{g.id}}">
+                <option [ngValue]="null">Select channel…</option>
+                <option *ngFor="let c of channelsOf(g.id)" [ngValue]="c.id">
+                  {{ c.name }} ({{ c.id }})
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <label class="label">User</label>
+            <div class="controls">
+              <select [(ngModel)]="banUserId[g.id]" name="bu-{{g.id}}">
+                <option [ngValue]="null">Select user…</option>
+                <option *ngFor="let u of getBannableUsers(g.id)" [ngValue]="u.id">
+                  {{ displayName(u) }}
+                </option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <label class="label">Reason</label>
+            <div class="controls">
+              <input [(ngModel)]="banReason[g.id]" name="br-{{g.id}}" placeholder="reason" />
+              <button class="btn btn-danger"
+                      (click)="banInChannel(g.id)"
+                      [disabled]="!banChannel[g.id] || !banUserId[g.id] || !banReason[g.id]">
+                Ban & Report
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <h4 *ngIf="isSuper" class="subheading">Pending promotions</h4>
+        <div class="pending" *ngIf="isSuper && (promoteRequests[g.id] || []).length === 0">None</div>
+        <ng-container *ngIf="isSuper">
+          <div class="pending-item" *ngFor="let uid of promoteRequests[g.id]">
+            <span>{{ username(uid) }}</span>
+            <div class="controls">
+              <button class="btn btn-accent" (click)="approvePromotion(g.id, uid)">Approve</button>
+              <button class="btn btn-subtle" (click)="rejectPromotion(g.id, uid)">Reject</button>
+            </div>
+          </div>
+        </ng-container>
+      </div>
+    </li>
+  </ul>
+</section>
+
+<section *ngIf="!isSuper && discoverGroups.length" class="discover card">
+  <h3 class="card-title">All groups</h3>
+  <ul class="discover-list">
+    <li *ngFor="let g of discoverGroups" class="discover-item">
+      <strong class="discover-name">{{ g.name }}</strong>
+      <button
+        (click)="requestToJoin(g.id)"
+        [disabled]="isInGroup(g.id) || hasPendingJoin(g.id)"
+        class="discover-join">
+        Request to join
+      </button>
+    </li>
+  </ul>
 </section>

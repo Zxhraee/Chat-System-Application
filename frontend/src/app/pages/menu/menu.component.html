@@ -1,7 +1,13 @@
 <h1 class="app-title">Chat System</h1>
 
 <section class="chat-shell" id="chat">
-  <header class="chat-header">General Chat</header>
+  <header class="chat-header">General /
+  <select [ngModel]="channelId" (ngModelChange)="changeGeneralChannel($event)" class="channel-select">
+    <option *ngFor="let c of channels" [ngValue]="c.id">{{ c.name }}</option>
+  </select>
+  Chat
+  </header>
+  
 
   <div class="chat-body">
     <div *ngIf="messages.length === 0" class="chat-empty">No messages yet.</div>
@@ -29,12 +35,20 @@
 </section>
 
 <h2>My Groups</h2>
-<div *ngIf="myGroups.length === 0">You don't belong to any groups yet.</div>
 
-<ng-container *ngFor="let g of myGroups">
-  <li *ngIf="!isGeneralGroup(g)">
-    <strong>{{ g.name }}</strong>
-    <button (click)="openGroupDefaultChannel(g)">Open group chat</button>
-    <a [routerLink]="['/groups', g.id, 'channels']" style="margin-left:8px">Browse channels</a>
-  </li>
-</ng-container>
+<section class="groups">
+  <div *ngIf="myGroups.length === 0" class="groups-empty">
+    You don't belong to any groups yet.
+  </div>
+
+  <ul class="groups-list">
+    <ng-container *ngFor="let g of myGroups">
+      <li *ngIf="!isGeneralGroup(g)" class="group-item">
+        <strong class="group-name">{{ g.name }}</strong>
+        <div class="group-actions">
+          <button (click)="openGroupDefaultChannel(g)" class="btn-primary">Open group chat</button>
+        </div>
+      </li>
+    </ng-container>
+  </ul>
+</section>
