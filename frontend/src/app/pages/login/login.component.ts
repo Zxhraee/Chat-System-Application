@@ -19,6 +19,7 @@ export class LoginComponent {
 
   constructor(private auth: AuthService, private router: Router) {}
 
+  //Submit User Credentials
   submit(){
     const user = this.auth.login(this.username, this.password);
     if (!user) {

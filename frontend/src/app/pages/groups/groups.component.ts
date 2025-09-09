@@ -56,6 +56,7 @@ export class GroupsComponent implements OnInit {
     this.refreshRequests();
   }
 
+  //Load all groups user is in from storage
   private refreshGroups() {
     const uid = this.me?.id || '';
     this.allGroups = this.storage.getAllGroups();
@@ -65,6 +66,7 @@ export class GroupsComponent implements OnInit {
       : this.allGroups.filter(g => this.userInGroup(uid, g.id));
   }
 
+  //Join requests and promote requests for each group
   private refreshRequests() {
     this.joinRequests = {};
     this.promoteRequests = {};
@@ -95,6 +97,7 @@ export class GroupsComponent implements OnInit {
     return this.isSuper || this.me?.role === 'GROUP_ADMIN';
   }
 
+  //Check user in group/creator or admin
   userInGroup(userId: string, groupId: string): boolean {
     const u = this.storage.getUserById(userId);
     const g = this.storage.getGroupById(groupId);
@@ -111,12 +114,11 @@ export class GroupsComponent implements OnInit {
     return !!this.me && this.userInGroup(this.me.id, groupId);
   }
 
-// keep this helper (already suggested before)
 getUpgradableUsers(): User[] {
   return this.storage.getUsers().filter(u => u.role !== 'SUPER_ADMIN');
 }
 
-// new global action (replace old per-group upgrade method)
+//Promote User role to Super
 upgradeToSuperGlobal() {
   if (!this.isSuper) return;
   const uid = this.upgradeUserIdGlobal;
@@ -129,19 +131,19 @@ upgradeToSuperGlobal() {
   this.upgradeUserIdGlobal = null;
   this.refreshGroups();
 }
-  
+
+//Get all users apart from group creator and super admin
 getDeletableUsersInGroup(gid: string): User[] {
   const meId = this.me?.id;
   const g = this.storage.getGroupById(gid);
   if (!g) return [];
 
   return this.usersIn(gid)
-    .filter(u => u.id !== meId)               // don't let me delete myself
-    .filter(u => u.id !== g.createdBy);       // don't allow deleting group creator
-    // If you also want to forbid deleting SUPERs globally, add:
-    // .filter(u => u.role !== 'SUPER_ADMIN');
+    .filter(u => u.id !== meId)            
+    .filter(u => u.id !== g.createdBy);     
+
 }
-  
+
   isGeneralGroup(g: Group | null): boolean {
     if (!g) return false;
     return g.id === 'G1' || (g.name || '').toLowerCase() === 'general';
@@ -153,6 +155,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     return list.includes(this.me.id);
   }
 
+  //Users that are not in a group and do not have a pending join request
   get discoverGroups(): Group[] {
     if (this.isSuper) return [];
     return this.allGroups.filter(
@@ -207,6 +210,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     return this.storage.getChannelsByGroup(gid);
   }
 
+  //Create Griup
   createGroup() {
     if (!this.me || !this.canCreateGroup()) return;
     const name = this.newGroupName.trim();
@@ -218,6 +222,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.router.navigate(['/chat', group.id, firstChannel.id]);
   }
 
+  //Rename Group
   rename(g: Group) {
     if (!this.canModify(g)) return;
     const name = prompt('New group name', g.name)?.trim();
@@ -226,6 +231,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //Delete Group
   remove(groupId: string) {
     const g = this.allGroups.find(x => x.id === groupId);
     if (!g || !this.canModify(g)) return;
@@ -235,6 +241,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //leave Group
   leave(groupId: string) {
     const g = this.storage.getGroupById(groupId);
     if (this.isGeneralGroup(g)) {
@@ -246,10 +253,12 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+
   openChannels(groupId: string) {
     this.router.navigate(['/groups', groupId, 'channels']);
   }
 
+  //Add Channel
   addChannel(groupId: string) {
     if (!this.isAdmin(this.storage.getGroupById(groupId)!)) return;
     const name = prompt('Channel name (e.g., "main")', 'main')?.trim();
@@ -258,6 +267,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //Add Member to Group
   addMemberByUsername(groupId: string) {
     const uid = this.addMemberUserId[groupId];
     if (!uid) return;
@@ -266,12 +276,14 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //Join Request
   requestToJoin(groupId: string) {
     if (!this.me) return;
     this.storage.requestJoinGroup(groupId, this.me.id);
     this.refreshRequests();
   }
 
+  //Approve Join Request
   approveJoin(groupId: string, userId: string) {
     if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
     this.storage.approveJoin(groupId, userId);
@@ -279,12 +291,14 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //Reject Join Request
   rejectJoin(groupId: string, userId: string) {
     if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
     this.storage.rejectJoin(groupId, userId);
     this.refreshRequests();
   }
 
+  //Request Admin Promotion
   requestPromotion(groupId: string) {
     const uid = this.promoteUserId[groupId];
     if (!uid) return;
@@ -293,6 +307,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshRequests();
   }
 
+  //Promotion Approval
   approvePromotion(groupId: string, userId: string) {
     if (!this.isSuper) return;
     this.storage.approvePromotion(groupId, userId);
@@ -300,12 +315,14 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //Promotion Rejection
   rejectPromotion(groupId: string, userId: string) {
     if (!this.isSuper) return;
     this.storage.rejectPromotion(groupId, userId);
     this.refreshRequests();
   }
 
+  //Super promoting user
   promoteNow(groupId: string) {
     if (!this.isSuper) return;
     const uid = this.promoteUserId[groupId];
@@ -316,7 +333,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
-  
+  //Delete User from Application
   removeAnyUser(groupId: string) {
     if (!this.isSuper) return;
     const uid = this.removeUserIdGlobal[groupId];
@@ -332,19 +349,11 @@ getDeletableUsersInGroup(gid: string): User[] {
   
     this.storage.deleteUser(uid);
   
-    // (optional) also scrub from groups/admin lists if your StorageService doesn’t already
-    // const groups = this.storage.getAllGroups().map(g => ({
-    //   ...g,
-    //   adminIds: (g.adminIds || []).filter(id => id !== uid),
-    //   createdBy: g.createdBy === uid ? g.createdBy : g.createdBy,
-    // }));
-    // this.storage.setGroups(groups);
-  
     this.removeUserIdGlobal[groupId] = null;
     this.refreshGroups();
   }
   
-  
+  //Remove User from Group
   removeMemberFromGroup(groupId: string) {
     const uid = this.removeUserId[groupId];
     if (!uid) { alert('Select a user to remove'); return; }
@@ -355,6 +364,7 @@ getDeletableUsersInGroup(gid: string): User[] {
     this.refreshGroups();
   }
 
+  //Ban User from Channel
   banInChannel(groupId: string) {
     const channelId = this.banChannel[groupId];
     const uid = this.banUserId[groupId];
@@ -373,6 +383,7 @@ getDeletableUsersInGroup(gid: string): User[] {
 
   removeChannelId: Record<string, string | null> = {};
 
+  //Remove Channel
   removeChannel(groupId: string) {
     const chId = this.removeChannelId[groupId];
     if (!chId) { alert('Please select a channel to remove.'); return; }

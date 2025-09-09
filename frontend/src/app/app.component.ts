@@ -16,20 +16,24 @@ export class AppComponent {
 
   constructor(private auth: AuthService, private router: Router) {}
 
+  //Currently Authenticated User
   user(): User | null {
     return this.auth.currentUser();
   }
 
+  //Super Admin Role Validation
   isSuperAdmin(): boolean {
     const user = this.user();
     return !!user && user.role === 'SUPER_ADMIN';
   }
 
+  //Group Admin or Super Check
   isGroupAdminorSuperAdmin(): boolean {
     const user = this.user();
     return !!user && (user.role === 'GROUP_ADMIN' || user.role === 'SUPER_ADMIN');
   }
 
+  //Logout 
   logout(): void {
     this.auth.logout();
     this.router.navigate(['/login']);
