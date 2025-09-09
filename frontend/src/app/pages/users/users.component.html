@@ -1,1 +1,16 @@
-<p>users works!</p>
+<button routerLink="/menu" class="back-btn">Back to Menu</button>
+
+<h1 class="app-title">My Account</h1>
+
+<ng-container *ngIf="current as u">
+  <div class="account-card">
+    <div class="row"><strong>Username:</strong> {{ u.username }}</div>
+    <div class="row"><strong>Email:</strong> {{ u.email }}</div>
+    <div class="row"><strong>Role:</strong> {{ u.role }}</div>
+    <div class="row"><strong>User ID:</strong> {{ u.id }}</div>
+
+    <div class="actions">
+      <button (click)="deleteMe()" class="btn danger-btn">Delete my account</button>
+    </div>
+  </div>
+</ng-container>

@@ -1,0 +1,80 @@
+*, *::before, *::after { 
+    box-sizing: border-box; 
+  }
+
+.app-title {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-weight: 700;
+    color: #352c4f;
+    text-align: center;
+}
+  
+  .account-card {
+    max-width: 720px;
+    width: 100%;
+    margin: 0 auto;
+    padding: 16px 18px;
+    background: #3a3157;
+    border: 1px solid #a899c7;
+    border-radius: 12px;
+    color: #f5efff;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .account-card .row strong {
+    color: #ffe0f1; 
+    font-weight: 700;
+    margin-right: 6px;
+  }
+  
+  .account-card .actions {
+    margin-top: 8px;
+  }
+  
+  .btn {
+    padding: 10px 14px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  
+  .danger-btn {
+    border: 1px solid #d68cb9;
+    background: #2a243b;
+    color: #f5efff;
+  }
+  .danger-btn:hover {
+    background: #4a3e6b;
+    border-color: #d68cb9;
+  }
+  
+  .back-btn {
+    padding: 6px 10px;
+    margin-top: 10px;
+    margin-bottom: 20px;
+    border: 1px solid #d68cb9;
+    border-radius: 6px;
+    background: rgba(53, 44, 79, 0.92);;
+    color: #f5efff;
+    font-weight: 600;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+.back-btn:hover {
+    background: #5a466d;
+    border-color: #d68cb9;
+}
+
+  @media (max-width: 768px) {
+    .account-card { width: 95%; }
+  }
+  @media (max-width: 480px) {
+    .account-card { width: 100%; border-radius: 0; }
+    .btn { border-radius: 6px; }
+  }
+  

@@ -1,51 +1,27 @@
 import { Injectable } from '@angular/core';
 import { User } from '../models/user';
+import { StorageService } from './storage.service';
 import { Group } from '../models/group';
 
 @Injectable({ providedIn: 'root' })
 export class PermissionsService {
-  isSuperAdmin(user: User | null | undefined): boolean {
-    return !!user && user.role === 'SUPER_ADMIN';
+  constructor(private store: StorageService) {}
+
+  isSuperAdmin(u: User | null): boolean {
+    return !!u && u.role === 'SUPER_ADMIN';
   }
 
-  isGroupAdmin(user: User | null | undefined): boolean {
-    return !!user && user.role === 'GROUP_ADMIN';
+  isGroupAdmin(u: User | null, g: Group | null): boolean {
+    return !!u && !!g && (g.adminIds.includes(u.id) || this.isSuperAdmin(u));
   }
 
-  canAdministerGroup(user: User | null | undefined, group: Group | null | undefined): boolean {
-    if (!user || !group) return false;
-    if (this.isSuperAdmin(user)) return true;
-
-    const userIsGroupAdmin = this.isGroupAdmin(user);
-
-    const createdBy: string | undefined = (group as any).createdBy;
-    const creatorIds: string[] | undefined = (group as any).creatorIds;
-    const adminIds: string[] | undefined = (group as any).adminId;
-
-    const userIsCreator =
-      (createdBy ? createdBy === user.id : false) ||
-      (Array.isArray(creatorIds) ? creatorIds.includes(user.id) : false);
-
-    const userListedAsAdmin = Array.isArray(adminIds) && adminIds.includes(user.id);
-
-    return userIsGroupAdmin && (userIsCreator || (!createdBy && !creatorIds && userListedAsAdmin));
+  canAdministerGroup(u: User | null, g: Group | null): boolean {
+    return this.isGroupAdmin(u, g);
   }
 
-  canCreateGroup(user: User | null | undefined): boolean {
-    return this.isSuperAdmin(user) || this.isGroupAdmin(user);
-  }
-
-  canApprovePromotion(user: User | null | undefined): boolean {
-    return this.isSuperAdmin(user);
-  }
-
-  canManageGroup(user: User | null | undefined, group: Group | null | undefined): boolean {
-    return this.canAdministerGroup(user, group);
-  }
-
-  canModifyOrDeleteGroup(u: User | null | undefined, g: Group | null | undefined): boolean {
+  canModifyGroup(u: User | null, g: Group | null): boolean {
     if (!u || !g) return false;
     if (this.isSuperAdmin(u)) return true;
-    return this.isGroupAdmin(u) && g.createdBy === u.id;
+    return g.createdBy === u.id;
   }
 }
