@@ -7,6 +7,7 @@ import { UsersComponent } from './pages/users/users.component';
 import { GroupsComponent } from './pages/groups/groups.component';
 import { ChannelsComponent } from './pages/channels/channels.component';
 import { ChatComponent } from './pages/chat/chat.component';
+import { RegisterComponent } from './pages/register/register.component'; 
 
 export const routes: Routes = [
     { path: 'login', component: LoginComponent },
@@ -16,6 +17,7 @@ export const routes: Routes = [
     { path: 'groups/:id/channels', component: ChannelsComponent, canActivate: [AuthGuard, RoleGuard], data: { roles: ['GROUP_ADMIN','SUPER'] } },
     { path: 'chat/:groupId', pathMatch: 'full', redirectTo: 'chat/:groupId/_' },
     { path: 'chat/:groupId/:channelId', component: ChatComponent },
+    { path: 'register', component: RegisterComponent },
     { path: '', pathMatch: 'full', redirectTo: 'login' },
     { path: '**', redirectTo: 'login' }
   ];

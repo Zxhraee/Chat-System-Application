@@ -1,146 +1,288 @@
 import { Component, OnInit } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-
 import { StorageService } from '../../services/storage.service';
 import { AuthService } from '../../services/auth.service';
-import { PermissionsService } from '../../services/permissions.service';
-
+import { FormsModule } from '@angular/forms';
+import { CommonModule } from '@angular/common';
 import { Group } from '../../models/group';
 import { User } from '../../models/user';
+import { Channel } from '../../models/channel';
 
 @Component({
   selector: 'app-groups',
   standalone: true,
   imports: [CommonModule, FormsModule],
   templateUrl: './groups.component.html',
-  styleUrls: ['./groups.component.scss']
+  styleUrls: ['./groups.component.scss'],
 })
 export class GroupsComponent implements OnInit {
   me: User | null = null;
+  isSuper = false;
+
+  allGroups: Group[] = [];
+  myGroups: Group[] = [];
 
   newGroupName = '';
+
   usernameToAdd = '';
   usernameToPromote = '';
+  usernameToRemove = '';
+  usernameToUpgrade = '';
 
-  myGroups: Group[] = [];
-  allGroups: Group[] = [];
+  banChannel: Record<string, string> = {};
+  banUsername: Record<string, string> = {};
+  banReason: Record<string, string> = {};
 
   joinRequests: Record<string, string[]> = {};
   promoteRequests: Record<string, string[]> = {};
 
   constructor(
-    private store: StorageService,
+    private storage: StorageService,
     private auth: AuthService,
-    private perms: PermissionsService,
     private router: Router
-  ) {}
+  ) { }
 
   ngOnInit(): void {
     this.me = this.auth.currentUser();
-    this.refresh();
+    this.isSuper = this.me?.role === 'SUPER_ADMIN';
+
+    this.refreshGroups();
+    this.refreshRequests();
   }
 
-  private refresh() {
-    if (!this.me) return;
-    this.allGroups = this.store.getGroups();
+  private refreshGroups() {
+    this.allGroups = this.storage.getGroups();
+    const uid = this.me?.id || '';
     this.myGroups = this.isSuper
       ? this.allGroups
-      : (
-          this.store.getGroupsForUser
-            ? this.store.getGroupsForUser(this.me.id)
-            : this.allGroups.filter(g => this.me!.groups.includes(g.id))
-        );
+      : this.allGroups.filter(g => this.userInGroup(uid, g.id));
+  }
 
+
+  private refreshRequests() {
     this.joinRequests = {};
     this.promoteRequests = {};
-
-    for (const g of this.myGroups) {
-      if (this.canAdmin(g)) {
-        this.joinRequests[g.id] = this.store.getJoinRequests(g.id);
-        this.promoteRequests[g.id] = this.store.getPromotionRequests(g.id);
-      }
+    for (const g of this.storage.getGroups()) {
+      this.joinRequests[g.id] = this.storage.getJoinRequests(g.id);
+      this.promoteRequests[g.id] = this.storage.getPromotionRequests(g.id);
     }
   }
 
-  get isSuper() { return this.perms.isSuperAdmin(this.me); }
-  canCreateGroup() { return this.perms.isSuperAdmin(this.me) || this.perms.isGroupAdmin(this.me); }
-  canAdmin(g: Group) { return this.perms.canAdministerGroup(this.me, g); }
-  canModify(g: Group) { return this.perms.canModifyOrDeleteGroup(this.me, g); }
-  isCreator(g: Group) { return !!this.me && g.createdBy === this.me.id; }
-  isAdmin(g: Group) { return !!this.me && g.adminIds.includes(this.me.id); }
+  isCreator(g: Group): boolean {
+    return !!this.me && g.createdBy === this.me.id;
+  }
 
-  username(id: string): string { return this.store.getUserById(id)?.username ?? id; }
+  isAdmin(g: Group): boolean {
+    if (!this.me) return false;
+    return g.adminIds.includes(this.me.id) || this.isSuper;
+  }
+
+  canAdmin(g: Group): boolean {
+    return this.isAdmin(g);
+  }
+
+  canModify(g: Group): boolean {
+    return this.isSuper || this.isCreator(g);
+  }
+
+  canCreateGroup(): boolean {
+    return this.isSuper || this.me?.role === 'GROUP_ADMIN';
+  }
+
+  userInGroup(userId: string, groupId: string): boolean {
+    const u = this.storage.getUserById(userId);
+    return !!u && u.groups.includes(groupId);
+  }
+
+  username(id: string): string {
+    return this.storage.getUserById(id)?.username ?? id;
+  }
+
+  channelsOf(gid: string): Channel[] {
+    return this.storage.getChannelsByGroup(gid);
+  }
 
   createGroup() {
-    if (!this.me || !this.newGroupName.trim()) return;
-    this.store.addGroup(this.newGroupName.trim(), this.me.id);
+    if (!this.me || !this.canCreateGroup()) return;
+    const name = this.newGroupName.trim();
+    if (!name) return;
+
+    const { group, firstChannel } = this.storage.addGroup(name, this.me.id);
     this.newGroupName = '';
-    this.refresh();
+    this.refreshGroups();
+    this.router.navigate(['/chat', group.id, firstChannel.id]);
   }
 
   rename(g: Group) {
-    const v = prompt('New group name:', g.name)?.trim();
-    if (!v) return;
     if (!this.canModify(g)) return;
-    this.store.renameGroup(g.id, v);
-    this.refresh();
+    const name = prompt('New group name', g.name)?.trim();
+    if (!name) return;
+    this.storage.renameGroup(g.id, name);
+    this.refreshGroups();
   }
 
   remove(groupId: string) {
-    const g = this.store.getGroupById(groupId);
+    const g = this.allGroups.find(x => x.id === groupId);
     if (!g || !this.canModify(g)) return;
-    if (!confirm('Delete group and its channels/messages?')) return;
-    this.store.deleteGroup(groupId);
-    this.refresh();
+    if (!confirm(`Delete group "${g.name}"?`)) return;
+    this.storage.deleteGroup(groupId);
+    this.refreshGroups();
   }
 
   leave(groupId: string) {
     if (!this.me) return;
-    this.store.removeUserFromGroup(groupId, this.me.id);
-    this.refresh();
+    this.storage.removeUserFromGroup(groupId, this.me.id);
+    this.refreshGroups();
   }
 
-  isInGroup(groupId: string): boolean {
-    return this.isSuper || (!!this.me && this.me.groups.includes(groupId));
+  openChannels(groupId: string) {
+    this.router.navigate(['/groups', groupId, 'channels']);
   }
 
+  addChannel(groupId: string) {
+    if (!this.isAdmin(this.storage.getGroupById(groupId)!)) return;
+    const name = prompt('Channel name (e.g., "main")', 'main')?.trim();
+    if (!name) return;
+    this.storage.addChannel(groupId, name);
+    this.refreshGroups();
+  }
 
   addMemberByUsername(groupId: string) {
     const uname = this.usernameToAdd.trim();
     if (!uname) return;
-    const u = this.store.getUserByUsername(uname);
-    if (!u) { alert('User not found'); return; }
-    this.store.addUserToGroup(groupId, u.id);
+    const u = this.storage.getUserByUsername(uname);
+    if (!u) return alert('User not found');
+    this.storage.addUserToGroup(groupId, u.id);
     this.usernameToAdd = '';
-    this.refresh();
+    this.refreshGroups();
   }
 
   requestToJoin(groupId: string) {
     if (!this.me) return;
-    if (this.isSuper) {
-      this.openChannels(groupId);
-      return;
-    }
-    this.store.requestJoinGroup(groupId, this.me.id);
-    alert('Join request sent.');
-    this.refresh();
+    this.storage.requestJoinGroup(groupId, this.me.id);
+    this.refreshRequests();
   }
-  approveJoin(groupId: string, userId: string) { this.store.approveJoin(groupId, userId); this.refresh(); }
-  rejectJoin(groupId: string, userId: string) { this.store.rejectJoin(groupId, userId); this.refresh(); }
+
+  approveJoin(groupId: string, userId: string) {
+    if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
+    this.storage.approveJoin(groupId, userId);
+    this.refreshRequests();
+    this.refreshGroups();
+  }
+
+  rejectJoin(groupId: string, userId: string) {
+    if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
+    this.storage.rejectJoin(groupId, userId);
+    this.refreshRequests();
+  }
 
   requestPromotion(groupId: string) {
+    if (!this.me) return;
+    this.storage.requestPromotion(groupId, this.me.id);
+    this.refreshRequests();
+  }
+
+  approvePromotion(groupId: string, userId: string) {
+    if (!this.isSuper) return;
+    this.storage.approvePromotion(groupId, userId);
+    this.refreshRequests();
+    this.refreshGroups();
+  }
+
+  rejectPromotion(groupId: string, userId: string) {
+    if (!this.isSuper) return;
+    this.storage.rejectPromotion(groupId, userId);
+    this.refreshRequests();
+  }
+
+  promoteNow(groupId: string) {
+    if (!this.isSuper) return;
     const uname = this.usernameToPromote.trim();
     if (!uname) return;
-    const u = this.store.getUserByUsername(uname);
+    const u = this.storage.getUserByUsername(uname);
     if (!u) { alert('User not found'); return; }
-    this.store.requestPromotion(groupId, u.id);
+    this.storage.approvePromotion(groupId, u.id);
     this.usernameToPromote = '';
-    this.refresh();
+    this.refreshRequests();
+    this.refreshGroups();
   }
-  approvePromotion(groupId: string, userId: string) { this.store.approvePromotion(groupId, userId); this.refresh(); }
-  rejectPromotion(groupId: string, userId: string) { this.store.rejectPromotion(groupId, userId); this.refresh(); }
 
-  openChannels(groupId: string) { this.router.navigate(['/groups', groupId, 'channels']); }
+  upgradeToSuper() {
+    if (!this.isSuper) return;
+    const uname = this.usernameToUpgrade.trim();
+    if (!uname) return;
+    const u = this.storage.getUserByUsername(uname);
+    if (!u) return alert('User not found');
+    this.storage.setUserRole(u.id, 'SUPER_ADMIN');
+    this.usernameToUpgrade = '';
+    this.refreshGroups();
+  }
+
+  removeAnyUser() {
+    if (!this.isSuper) return;
+    const uname = this.usernameToRemove.trim();
+    if (!uname) return;
+    const u = this.storage.getUserByUsername(uname);
+    if (!u) return alert('User not found');
+    if (!confirm(`Delete user "${u.username}" from the platform?`)) return;
+    this.storage.deleteUser(u.id);
+    this.usernameToRemove = '';
+    this.refreshGroups();
+  }
+
+  removeMemberFromGroup(groupId: string) {
+    const uname = this.usernameToRemove.trim();
+    if (!uname) return;
+    const u = this.storage.getUserByUsername(uname);
+    if (!u) return alert('User not found');
+    this.storage.removeUserFromGroup(groupId, u.id);
+    this.usernameToRemove = '';
+    this.refreshGroups();
+  }
+
+  banInChannel(groupId: string) {
+    const channelId = this.banChannel[groupId];
+    const uname = (this.banUsername[groupId] || '').trim();
+    const reason = (this.banReason[groupId] || '').trim();
+    if (!channelId || !uname || !reason) return;
+
+    const u = this.storage.getUserByUsername(uname);
+    if (!u) return alert('User not found');
+
+    if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
+
+    this.storage.banUser(channelId, u.id);
+    this.storage.reportBan(channelId, this.me!.id, u.id, reason);
+
+    this.banUsername[groupId] = '';
+    this.banReason[groupId] = '';
+    alert(`Banned ${u.username} in channel ${channelId} and reported to super admin.`);
+  }
+
+  isInGroup(groupId: string): boolean {
+    return !!this.me && this.userInGroup(this.me.id, groupId);
+  }
+
+  removeChannelId: Record<string, string | null> = {};
+
+  removeChannel(groupId: string) {
+    const chId = this.removeChannelId[groupId];
+    if (!chId) { alert('Please select a channel to remove.'); return; }
+
+    const g = this.allGroups.find(x => x.id === groupId) || null;
+    if (!g || !this.canAdmin(g)) return;
+
+    const ch = this.storage.getChannelById(chId);
+    if (!ch || ch.groupId !== groupId) { alert('Invalid channel selection.'); return; }
+
+    if (!confirm(`Delete channel "${ch.name}" (${ch.id}) from group "${g.name}"?`)) return;
+
+    this.storage.deleteChannel(chId);
+    if (!this.storage.getFirstChannelId(groupId)) {
+      this.storage.ensureDefaultChannel(groupId);
+    }
+
+    this.removeChannelId[groupId] = null;
+    this.refreshGroups();
+  }
 }

@@ -1,1 +1,12 @@
-<p>users works!</p>
+<h2>My Account</h2>
+
+<ng-container *ngIf="current as u">
+    <div><strong>Username:</strong> {{ u.username }}</div>
+    <div><strong>Email:</strong> {{ u.email }}</div>
+    <div><strong>Role:</strong> {{ u.role }}</div>
+    <div><strong>User ID:</strong> {{ u.id }}</div>
+  
+    <div style="margin-top: 1rem;">
+      <button (click)="deleteMe()" class="danger">Delete my account</button>
+    </div>
+  </ng-container>

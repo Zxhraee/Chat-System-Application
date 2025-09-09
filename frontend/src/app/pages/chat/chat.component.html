@@ -1,9 +1,14 @@
-<h1 class="app-title"> {{ activeGroup?.name }} <ng-container *ngIf="activeChannelName">/ {{ activeChannelName }}</ng-container> Chat </h1>
+<h1 class="app-title"> {{ activeGroup?.name }} Chat </h1>
 
 <section class="chat-shell" id="chat">
-    <header class="chat-header">
-        {{ activeGroup?.name }} <ng-container *ngIf="activeChannelName">/ {{ activeChannelName }}</ng-container> Chat
+      <header class="chat-header">
+        {{ activeGroup?.name }} /
+        <select [ngModel]="channelId" (ngModelChange)="goChannel($event)">
+          <option *ngFor="let c of channels" [ngValue]="c.id">{{ c.name }}</option>
+        </select>
+        Chat
       </header>
+      
         
     <div class="chat-body">
       <div *ngIf="messages.length === 0" class="chat-empty">No messages yet.</div>
