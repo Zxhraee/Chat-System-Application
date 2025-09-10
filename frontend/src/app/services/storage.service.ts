@@ -59,7 +59,7 @@ export class StorageService {
     localStorage.setItem(this.Keys.Channel, JSON.stringify(channels));
     localStorage.setItem(this.Keys.Messages, JSON.stringify([]));
     localStorage.setItem(this.Keys.RegisterRequests, JSON.stringify({}));
-    localStorage.setItem(this.Keys.Bans, JSON.stringify({}));
+    localStorage.setItem(this.Keys.Bans, JSON.stringify([]));
     localStorage.setItem(this.Keys.Reports, JSON.stringify([]));
     localStorage.setItem(this.Keys.Session, 'null');
     localStorage.setItem(this.Keys.IdCounters, JSON.stringify({ U: 5, G: 4, C: 8, M: 1 }));
