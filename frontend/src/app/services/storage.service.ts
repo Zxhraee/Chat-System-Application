@@ -11,6 +11,7 @@ type Reports = Array<{ channelId: string; bannerId: string; bannedId: string; re
 @Injectable({ providedIn: 'root' })
 export class StorageService {
 
+  //Local Storage Keys
   Keys = {
     User: 'key_users',
     Group: 'key_groups',
@@ -26,6 +27,7 @@ export class StorageService {
   constructor() { if (!localStorage.getItem(this.Keys.User)) { this.seed(); } }
 
   private seed() {
+    //User Seeder
     const users: User[] = [
       { id: 'U1', username: 'Super', email: 'superuser@gmail.com', password: '123', role: 'SUPER_ADMIN', groups: ['G1', 'G2', 'G3'] },
       { id: 'U2', username: 'Zahra', email: 'zahraanamkhan@gmail.com', password: '123', role: 'USER', groups: ['G1', 'G2'] },
@@ -33,6 +35,7 @@ export class StorageService {
       { id: 'U4', username: 'Student', email: 'anam.khan@griffithuni.edu.au', password: '123', role: 'USER', groups: ['G1','G3', 'G4'] },
     ];
 
+    //Group Seeder
     const groups: Group[] = [
       { id: 'G1', name: 'General', adminIds: ['U1'], createdBy: 'U1', channelId: ['C1', 'C2'] },
       { id: 'G2', name: 'Mathematics', adminIds: ['U3', 'U1'], createdBy: 'U3', channelId: ['C3', 'C4'] },
@@ -40,7 +43,8 @@ export class StorageService {
       { id: 'G4', name: 'English', adminIds: ['U1', 'U3', 'U2'], createdBy: 'U1', channelId: ['C8', 'C9'] },
 
     ];
-
+    
+    //Channel Seeder
     const channels: Channel[] = [
       { id: 'C_GLOBAL', groupId: 'GLOBAL', name: 'General', memberId: users.map(u => u.id) },
       { id: 'C1', groupId: 'G1', name: 'Main', memberId: ['U1', 'U2'] },
@@ -54,6 +58,7 @@ export class StorageService {
       { id: 'C9', groupId: 'G4', name: 'Vocabulary', memberId: ['U1', 'U3', 'U2', 'U4'] },
     ];
 
+    //Create Keys
     localStorage.setItem(this.Keys.User, JSON.stringify(users));
     localStorage.setItem(this.Keys.Group, JSON.stringify(groups));
     localStorage.setItem(this.Keys.Channel, JSON.stringify(channels));
@@ -65,11 +70,13 @@ export class StorageService {
     localStorage.setItem(this.Keys.IdCounters, JSON.stringify({ U: 5, G: 4, C: 8, M: 1 }));
   }
 
+  //Users Helpers
   getUsers(): User[] { return JSON.parse(localStorage.getItem(this.Keys.User) || '[]'); }
   setUsers(users: User[]) { localStorage.setItem(this.Keys.User, JSON.stringify(users)); }
   getUserById(id: string): User | undefined { return this.getUsers().find(u => u.id === id); }
   getUserByUsername(username: string): User | undefined { return this.getUsers().find(u => u.username === username); }
 
+  //Create User
   createUser(username: string, email: string, password: string): User | null {
     username = username.trim();
     if (!username || !email.trim() || !password.trim()) return null;
@@ -91,6 +98,7 @@ export class StorageService {
     return u;
   }
 
+  //Delete User
   deleteUser(userId: string): boolean {
     const users = this.getUsers().filter(u => u.id !== userId);
     this.setUsers(users);
@@ -102,10 +110,12 @@ export class StorageService {
     return true;
   }
 
+  //Return Groups
   getAllGroups(): Group[] {
     return JSON.parse(localStorage.getItem('key_groups') || '[]');
   }
 
+  //Change Role
   setUserRole(userId: string, role: User['role']) {
     const users = this.getUsers();
     const u = users.find(x => x.id === userId);
@@ -114,12 +124,14 @@ export class StorageService {
     this.setUsers(users);
   }
 
+  //Group Helpers
   getGroups(): Group[] { return JSON.parse(localStorage.getItem(this.Keys.Group) || '[]'); }
   setGroups(groups: Group[]) { localStorage.setItem(this.Keys.Group, JSON.stringify(groups)); }
   getGroupById(id: string): Group | null {
     return this.getGroups().find(g => g.id === id) ?? null;
   }
 
+  //Channel Helpers
   getChannels(): Channel[] {
     return JSON.parse(localStorage.getItem(this.Keys.Channel) || '[]');
   }
@@ -132,6 +144,8 @@ export class StorageService {
   getChannelsByGroup(groupId: string): Channel[] {
     return this.getChannels().filter(c => c.groupId === groupId);
   }
+
+  //Create Channel
   addChannel(groupId: string, name = 'main', memberIds: string[] = []): Channel {
     const channels = this.getChannels();
     const id = this.nextId('C');
@@ -147,12 +161,14 @@ export class StorageService {
     return ch;
   }
 
+  //Set Default First Channel
   ensureDefaultChannel(groupId: string, creatorId?: string): Channel {
     const existing = this.getChannelsByGroup(groupId);
     if (existing.length) return existing[0];
     return this.addChannel(groupId, 'main', creatorId ? [creatorId] : []);
   }
 
+  //Create New Group
   addGroup(name: string, creatorId: string): { group: Group; firstChannel: Channel } {
     const groups = this.getGroups();
     const id = this.nextId('G');
@@ -170,7 +186,7 @@ export class StorageService {
     return { group: g, firstChannel };
   }
 
-
+  //Rename Group
   renameGroup(groupId: string, name: string): Group | null {
     const groups = this.getGroups();
     const g = groups.find(x => x.id === groupId);
@@ -180,6 +196,7 @@ export class StorageService {
     return g;
   }
 
+  //Delete Group
   deleteGroup(groupId: string): boolean {
     const groups = this.getGroups().filter(g => g.id !== groupId);
     this.setGroups(groups);
@@ -201,12 +218,15 @@ export class StorageService {
     this.setRequests(req);
     return true;
   }
+  
+  //Get User Groups
   getGroupsForUser(userId: string): Group[] {
     const u = this.getUsers().find(x => x.id === userId);
     if (!u) return [];
     return this.getGroups().filter(g => u.groups.includes(g.id));
   }
 
+  //Add Users to Group
   addUserToGroup(groupId: string, userId: string): boolean {
     const users = this.getUsers();
     const u = users.find(x => x.id === userId);
@@ -216,6 +236,7 @@ export class StorageService {
     return true;
   }
 
+  //Remove from Group
   removeUserFromGroup(groupId: string, userId: string): boolean {
     const users = this.getUsers();
     const u = users.find(x => x.id === userId);
@@ -225,6 +246,7 @@ export class StorageService {
     return true;
   }
 
+  //Add Admin to Group
   addAdminToGroup(groupId: string, userId: string): boolean {
     const groups = this.getGroups();
     const g = groups.find(x => x.id === groupId);
@@ -234,6 +256,7 @@ export class StorageService {
     return true;
   }
 
+  //Remove Adminfrom Group
   removeAdminFromGroup(groupId: string, userId: string): boolean {
     const groups = this.getGroups();
     const g = groups.find(x => x.id === groupId);
@@ -243,8 +266,7 @@ export class StorageService {
     return true;
   }
 
-
-
+  //Session Helpers
   getSession(): { userId: string } | null {
     return JSON.parse(localStorage.getItem(this.Keys.Session) || 'null');
   }
@@ -258,6 +280,7 @@ export class StorageService {
     return this.getUsers().find(user => user.id === session.userId) || null;
   }
 
+  //Get Messages
   private getAllMessages(): ChatMessage[] {
     const raw = localStorage.getItem(this.Keys.Messages);
     if (!raw) return [];
@@ -277,21 +300,26 @@ export class StorageService {
 
   private Bans = 'key_bans';
 
+  //Check for Bans
   isBanned(channelId: string, userId: string): boolean {
-  const bans = JSON.parse(localStorage.getItem(this.Bans) || '[]');
-  return bans.some((b: any) => b.channelId === channelId && b.userId === userId);
-}
+    const bans: Array<{ channelId: string; userId: string }> =
+      JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]');
+    return bans.some(b => b.channelId === channelId && b.userId === userId);
+  }
 
+  // Save all Messages
   private setAllMessages(msgs: ChatMessage[]) {
     localStorage.setItem(this.Keys.Messages, JSON.stringify(Array.isArray(msgs) ? msgs : []));
   }
 
+  //Get Messages
   getMessagesForChannel(channelId: string): ChatMessage[] {
     return this.getAllMessages()
       .filter(m => m.channelId === channelId)
       .sort((a, b) => a.timestamp - b.timestamp);
   }
 
+  //Send message to Storage
   sendMessage(channelId: string, authorId: string, text: string): ChatMessage | null {
     const trimmed = text.trim();
     if (!trimmed) return null;
@@ -315,60 +343,74 @@ export class StorageService {
     return msg;
   }
 
+  //Get and Save User Requests
   private getRequests(): Requests { return JSON.parse(localStorage.getItem(this.Keys.RegisterRequests) || '{}'); }
   private setRequests(v: Requests) { localStorage.setItem(this.Keys.RegisterRequests, JSON.stringify(v)); }
 
+  //Join Group Request Send
   requestJoinGroup(groupId: string, userId: string) {
     const req = this.getRequests();
     req[groupId] ||= { join: [], promote: [] };
     if (!req[groupId].join.includes(userId)) req[groupId].join.push(userId);
     this.setRequests(req);
   }
+
+  //Get User Join Request
   getJoinRequests(groupId: string): string[] { return this.getRequests()[groupId]?.join ?? []; }
+
+  //Aprove User Request
   approveJoin(groupId: string, userId: string) {
     this.addUserToGroup(groupId, userId);
     const req = this.getRequests();
     if (req[groupId]) req[groupId].join = req[groupId].join.filter(id => id !== userId);
     this.setRequests(req);
   }
+
+  //Reject User Request
   rejectJoin(groupId: string, userId: string) {
     const req = this.getRequests();
     if (req[groupId]) req[groupId].join = req[groupId].join.filter(id => id !== userId);
     this.setRequests(req);
   }
 
+  //Send Request for Promotion
   requestPromotion(groupId: string, userId: string) {
     const req = this.getRequests();
     req[groupId] ||= { join: [], promote: [] };
     if (!req[groupId].promote.includes(userId)) req[groupId].promote.push(userId);
     this.setRequests(req);
   }
+
+  //Retrieve Promotion Request
   getPromotionRequests(groupId: string): string[] { return this.getRequests()[groupId]?.promote ?? []; }
+  
+  //Approve Promotion
   approvePromotion(groupId: string, userId: string) {
     this.addAdminToGroup(groupId, userId);
     const req = this.getRequests();
     if (req[groupId]) req[groupId].promote = req[groupId].promote.filter(id => id !== userId);
     this.setRequests(req);
   }
+
+  //Reject Promotion
   rejectPromotion(groupId: string, userId: string) {
     const req = this.getRequests();
     if (req[groupId]) req[groupId].promote = req[groupId].promote.filter(id => id !== userId);
     this.setRequests(req);
   }
 
+  //Get and Save Bans
   private getBans(): Bans { return JSON.parse(localStorage.getItem(this.Keys.Bans) || '{}'); }
   private setBans(v: Bans) { localStorage.setItem(this.Keys.Bans, JSON.stringify(v)); }
 
+  //Save User Ban
   banUser(channelId: string, userId: string): void {
-    const b = this.getBans();
-    b[channelId] = b[channelId] ?? [];
-    if (!b[channelId].includes(userId)) b[channelId].push(userId);
-    this.setBans(b);
-  }
-  unbanUser(channelId: string, userId: string): void {
-    const b = this.getBans();
-    b[channelId] = (b[channelId] ?? []).filter(id => id !== userId);
-    this.setBans(b);
+    const bans: Array<{ channelId: string; userId: string }> =
+      JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]');
+    if (!bans.some(b => b.channelId === channelId && b.userId === userId)) {
+      bans.push({ channelId, userId });
+      localStorage.setItem(this.Keys.Bans, JSON.stringify(bans));
+    }
   }
 
   private getReports(): Reports { return JSON.parse(localStorage.getItem(this.Keys.Reports) || '[]'); }
@@ -378,8 +420,11 @@ export class StorageService {
     r.push({ channelId, bannerId, bannedId, reason, ts: Date.now() });
     this.setReports(r);
   }
+
+  //Return Reports
   getAllReports(): Reports { return this.getReports(); }
 
+  //get Next Id for Objects in storage
   private nextId(prefix: 'U' | 'G' | 'C' | 'M'): string {
     const counters = JSON.parse(localStorage.getItem(this.Keys.IdCounters) || '{"U":1,"G":1,"C":1,"M":1}');
     counters[prefix] = (counters[prefix] || 0) + 1;
@@ -387,40 +432,34 @@ export class StorageService {
     return `${prefix}${counters[prefix]}`;
   }
 
+  //Fetch First Channel Id
   getFirstChannelId(groupId: string): string | null {
     return this.getChannelsByGroup(groupId)[0]?.id ?? null;
   }
 
-  renameChannel(channelId: string, name: string): Channel | null {
-    const chs = this.getChannels();
-    const ch = chs.find(c => c.id === channelId);
-    if (!ch) return null;
-    ch.name = name.trim();
-    this.setChannels(chs);
-    return ch;
-  }
-
+  //Delete Channel
   deleteChannel(channelId: string): boolean {
     const all = this.getChannels();
     const ch = all.find(c => c.id === channelId);
     if (!ch) return false;
-
+  
     this.setChannels(all.filter(c => c.id !== channelId));
-
+  
     const groups = this.getGroups();
     const g = groups.find(x => x.id === ch.groupId);
     if (g) {
       g.channelId = g.channelId.filter(id => id !== channelId);
       this.setGroups(groups);
     }
-
+  
     const msgs = this.getAllMessages().filter(m => m.channelId !== channelId);
     this.setAllMessages(msgs);
-
-    const bans = this['getBans']();
-    delete bans[channelId];
-    this['setBans'](bans);
-
+  
+    const bans: Array<{ channelId: string; userId: string }> =
+      JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]');
+    const updated = bans.filter(b => b.channelId !== channelId);
+    localStorage.setItem(this.Keys.Bans, JSON.stringify(updated));
+  
     return true;
   }
 }

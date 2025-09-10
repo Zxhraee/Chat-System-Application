@@ -10,6 +10,7 @@ export class ChatService {
 
   constructor(private store: StorageService, private auth: AuthService) {}
 
+  //Return Message Stream for Channel
   messages$(channelId: string): Observable<ChatMessage[]> {
     let s = this.streams.get(channelId);
     if (!s) {
@@ -19,11 +20,13 @@ export class ChatService {
     return s.asObservable();
   }
 
+  //Refresh Stream
   private refresh(channelId: string) {
     const s = this.streams.get(channelId);
     if (s) s.next(this.store.getMessagesForChannel(channelId));
   }
 
+  //Send Message
   send(channelId: string, text: string): ChatMessage | null {
     const me = this.auth.currentUser();
     if (!me || !text.trim()) return null;
@@ -32,6 +35,7 @@ export class ChatService {
     return msg;
   }
 
+  //Fetch Message
   getMessages(channelId: string): ChatMessage[] {
     const list = this.store.getMessagesForChannel(channelId);
     this.refresh(channelId);
