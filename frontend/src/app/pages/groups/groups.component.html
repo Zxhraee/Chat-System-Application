@@ -49,7 +49,7 @@
       <div class="group-actions">
         <button class="btn btn-danger"
                 (click)="leave(g.id)"
-                *ngIf="!isCreator(g) && !isGeneralGroup(g)">
+                *ngIf="!isCreator(g) && !isGeneralGroup(g) && !isSuper">
           Leave
         </button>
         <button class="btn btn-subtle" (click)="rename(g)" *ngIf="canModify(g)">Rename</button>

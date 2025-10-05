@@ -4,9 +4,12 @@ import { Channel } from '../models/channel';
 import { Group } from '../models/group';
 import { ChatMessage } from '../models/message';
 
-type Requests = Record<string, { join: string[]; promote: string[] }>;
-type Bans = Record<string, string[]>;
-type Reports = Array<{ channelId: string; bannerId: string; bannedId: string; reason: string; ts: number }>
+type Requests = { [groupId: string]: { join: string[]; promote: string[] } };
+type BanEntry = { channelId: string; userId: string };
+type Bans = BanEntry[];
+type Report = { channelId: string; bannerId: string; bannedId: string; reason: string; ts: number };
+type Reports = Report[];
+
 
 @Injectable({ providedIn: 'root' })
 export class StorageService {
@@ -49,8 +52,8 @@ export class StorageService {
       { id: 'C_GLOBAL', groupId: 'GLOBAL', name: 'General', memberId: users.map(u => u.id) },
       { id: 'C1', groupId: 'G1', name: 'Main', memberId: ['U1', 'U2'] },
       { id: 'C2', groupId: 'G1', name: 'Help', memberId: ['U1', 'U2'] },
-      { id: 'C3', groupId: 'G2', name: 'Algebra', memberId: ['U2', 'U3'] },
-      { id: 'C4', groupId: 'G2', name: 'Calculus', memberId: ['U2', 'U3'] },
+      { id: 'C3', groupId: 'G2', name: 'Algebra', memberId: ['U1', 'U2', 'U3'] },
+      { id: 'C4', groupId: 'G2', name: 'Calculus', memberId: ['U1', 'U2', 'U3'] },
       { id: 'C5', groupId: 'G3', name: 'Biology', memberId: ['U1', 'U4'] },
       { id: 'C6', groupId: 'G3', name: 'Chemistry', memberId: ['U1', 'U4'] },
       { id: 'C7', groupId: 'G3', name: 'Physics', memberId: ['U1', 'U4'] },
@@ -300,13 +303,6 @@ export class StorageService {
 
   private Bans = 'key_bans';
 
-  //Check for Bans
-  isBanned(channelId: string, userId: string): boolean {
-    const bans: Array<{ channelId: string; userId: string }> =
-      JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]');
-    return bans.some(b => b.channelId === channelId && b.userId === userId);
-  }
-
   // Save all Messages
   private setAllMessages(msgs: ChatMessage[]) {
     localStorage.setItem(this.Keys.Messages, JSON.stringify(Array.isArray(msgs) ? msgs : []));
@@ -400,27 +396,40 @@ export class StorageService {
   }
 
   //Get and Save Bans
-  private getBans(): Bans { return JSON.parse(localStorage.getItem(this.Keys.Bans) || '{}'); }
-  private setBans(v: Bans) { localStorage.setItem(this.Keys.Bans, JSON.stringify(v)); }
+  private getBans(): Bans {
+    return JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]') as Bans;
+  }
+  private setBans(v: Bans) {
+    localStorage.setItem(this.Keys.Bans, JSON.stringify(Array.isArray(v) ? v : []));
+  }
+
 
   //Save User Ban
+  isBanned(channelId: string, userId: string): boolean {
+    const bans = this.getBans();
+    return bans.some(b => b.channelId === channelId && b.userId === userId);
+  }
+
   banUser(channelId: string, userId: string): void {
-    const bans: Array<{ channelId: string; userId: string }> =
-      JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]');
+    const bans = this.getBans();
     if (!bans.some(b => b.channelId === channelId && b.userId === userId)) {
       bans.push({ channelId, userId });
-      localStorage.setItem(this.Keys.Bans, JSON.stringify(bans));
+      this.setBans(bans);
     }
   }
 
-  private getReports(): Reports { return JSON.parse(localStorage.getItem(this.Keys.Reports) || '[]'); }
-  private setReports(r: Reports) { localStorage.setItem(this.Keys.Reports, JSON.stringify(r)); }
+ private getReports(): Reports {
+    return JSON.parse(localStorage.getItem(this.Keys.Reports) || '[]') as Reports;
+  }
+  private setReports(r: Reports) {
+    localStorage.setItem(this.Keys.Reports, JSON.stringify(r));
+  }
   reportBan(channelId: string, bannerId: string, bannedId: string, reason: string) {
     const r = this.getReports();
     r.push({ channelId, bannerId, bannedId, reason, ts: Date.now() });
     this.setReports(r);
   }
-
+  
   //Return Reports
   getAllReports(): Reports { return this.getReports(); }
 
@@ -455,10 +464,8 @@ export class StorageService {
     const msgs = this.getAllMessages().filter(m => m.channelId !== channelId);
     this.setAllMessages(msgs);
   
-    const bans: Array<{ channelId: string; userId: string }> =
-      JSON.parse(localStorage.getItem(this.Keys.Bans) || '[]');
-    const updated = bans.filter(b => b.channelId !== channelId);
-    localStorage.setItem(this.Keys.Bans, JSON.stringify(updated));
+    const bans = this.getBans().filter(b => b.channelId !== channelId);
+    this.setBans(bans);
   
     return true;
   }
