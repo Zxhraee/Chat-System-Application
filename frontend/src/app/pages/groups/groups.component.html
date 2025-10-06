@@ -33,7 +33,7 @@
   </div>
 
   <ul class="groups-grid">
-    <li *ngFor="let g of myGroups" class="group-card">
+    <li *ngFor="let g of groups$ | async" class="group-card">
       <div class="group-head">
         <div class="group-title">
           <strong class="group-name">{{ g.name }}</strong>

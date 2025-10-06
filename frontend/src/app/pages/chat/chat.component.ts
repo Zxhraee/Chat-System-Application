@@ -2,8 +2,7 @@ import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
-import { Subscription } from 'rxjs';
-
+import { Subscription, Observable, of } from 'rxjs';
 import { ChatService } from '../../services/chat.service';
 import { StorageService } from '../../services/storage.service';
 import { ChatMessage } from '../../models/message';
@@ -19,21 +18,20 @@ import { Channel } from '../../models/channel';
   styleUrls: ['./chat.component.scss'],
 })
 export class ChatComponent implements OnInit, OnDestroy {
-  //Messages in chat and input for messages
-  messages: ChatMessage[] = [];
   input = '';
 
-  //Active Group, Active Channels and All channels in group
+  messages$: Observable<ChatMessage[]> = of([]);
+
   activeGroup: Group | null = null;
   activeChannelName = '';
   channels: Channel[] = [];
 
-  //Route and message stream Sub
-  private routeSub?: Subscription;
-  private streamSub?: Subscription;
-
   groupId = '';
   channelId = '';
+
+  private subRoute?: Subscription;
+  private subGroup?: Subscription;
+  private subChans?: Subscription;
 
   constructor(
     private route: ActivatedRoute,
@@ -43,56 +41,72 @@ export class ChatComponent implements OnInit, OnDestroy {
   ) {}
 
   ngOnInit(): void {
-    this.routeSub = this.route.paramMap.subscribe(params => {
-      const gid = params.get('groupId');
-      let cid = params.get('channelId');
-      if (!gid) return;
+    this.subRoute = this.route.paramMap.subscribe(params => {
+        const gid = this.route.snapshot.paramMap.get('groupId')!;
+  const cid = this.route.snapshot.paramMap.get('channelId');
 
-      //Loud group and channel list 
+  if (!cid) {
+    this.store.ensureDefaultChannel(gid).subscribe(ch => {
+      this.router.navigate(['/chat', gid, ch.id]);
+    });
+    return;
+  }
       this.groupId = gid;
-      this.activeGroup = this.store.getGroupById(gid);
-      this.channels = this.store.getChannelsByGroup(gid);
 
-      //If channel missing, jump to next. Create Default main channel if none
-      if (!cid || cid === '_') {
-        const first = this.store.getFirstChannelId(gid) ?? this.store.ensureDefaultChannel(gid).id;
-        this.router.navigate(['/chat', gid, first], { replaceUrl: true });
-        return;
-      }
+      this.subGroup?.unsubscribe();
+      this.subGroup = this.store.getGroupById(gid).subscribe(g => {
+        this.activeGroup = g;
 
-      //Channel Validation
-      const ch = this.store.getChannelById(cid);
-      if (!ch || ch.groupId !== gid) {
-        const first = this.store.getFirstChannelId(gid) ?? this.store.ensureDefaultChannel(gid).id;
-        this.router.navigate(['/chat', gid, first], { replaceUrl: true });
-        return;
-      }
+        this.subChans?.unsubscribe();
+        this.subChans = this.store.getChannelsByGroup(gid).subscribe(chs => {
+          this.channels = chs || [];
 
-      this.channelId = cid;
-      this.activeChannelName = ch.name;
+          const byParam = this.channels.find(c => c.id === cid);
+          const chosen = byParam?.id || this.channels[0]?.id || '';
 
-      //Resub channel stream upon change
-      this.streamSub?.unsubscribe();
-      this.streamSub = this.chat.messages$(this.channelId)
-        .subscribe((list: ChatMessage[]) => (this.messages = list));
+          if (!chosen) {
+            this.store.ensureDefaultChannel(gid).subscribe(created => {
+              this.store.getChannelsByGroup(gid).subscribe(chs2 => {
+                this.channels = chs2 || [];
+                this.setActiveChannel(this.channels[0]?.id || '');
+              });
+            });
+          } else {
+            this.setActiveChannel(chosen);
+          }
+        });
+      });
     });
   }
 
-  //Nav to new channel route
+  private setActiveChannel(id: string) {
+    if (!id) return;
+    this.channelId = id;
+    const ch = this.channels.find(c => c.id === id);
+    this.activeChannelName = ch?.name || '';
+    this.messages$ = this.chat.messages$(id);
+  }
+
   goChannel(id: string) {
     if (id && id !== this.channelId) this.router.navigate(['/chat', this.groupId, id]);
   }
 
-  //Send chat message
   send(): void {
-    const text = this.input.trim();
-    if (!text || !this.channelId) return;
-    const sent = this.chat.send(this.channelId, text);
+  const text = this.input.trim();
+  if (!text) return;
+
+  if (!this.channelId) return;         
+  const cid: string = this.channelId;    
+
+  this.chat.send(cid, text).subscribe((sent: ChatMessage | null) => {
     if (sent) this.input = '';
-  }
+  });
+}
+
 
   ngOnDestroy(): void {
-    this.routeSub?.unsubscribe();
-    this.streamSub?.unsubscribe();
+    this.subRoute?.unsubscribe();
+    this.subGroup?.unsubscribe();
+    this.subChans?.unsubscribe();
   }
 }

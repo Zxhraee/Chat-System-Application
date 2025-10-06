@@ -1,7 +1,7 @@
-import { Component } from '@angular/core';
+import { Component, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
-
+import { Subscription } from 'rxjs';
 import { AuthService } from '../../services/auth.service';
 import { StorageService } from '../../services/storage.service';
 import { User } from '../../models/user';
@@ -11,28 +11,42 @@ import { User } from '../../models/user';
   standalone: true,
   imports: [CommonModule, RouterLink],
   templateUrl: './users.component.html',
-  styleUrl: './users.component.scss'
+  styleUrls: ['./users.component.scss']
 })
-export class UsersComponent {
+export class UsersComponent implements OnDestroy {
+  current: User | null = null;
+  users: User[] = [];
+
+  private subCurrent?: Subscription;
+  private subUsers?: Subscription;
+
   constructor(
     private auth: AuthService,
     private storage: StorageService,
     private router: Router
-  ) {}
-
-  //Get current logged in user details
-  get current(): User | null {
-    return this.auth.currentUser() ?? this.storage.getCurrentUser();
+  ) {
+    this.subCurrent = this.storage.getCurrentUser().subscribe(u => (this.current = u));
+    this.subUsers   = this.storage.getUsers().subscribe(list => (this.users = list));
   }
 
-  //Delete account
-  deleteMe(): void {
-    const u = this.current;
+  deleteMe(u: User | null): void {
     if (!u) return;
     if (!confirm(`Delete your account "${u.username}"? This cannot be undone.`)) return;
 
-    this.storage.deleteUser(u.id);
-    this.auth.logout();
-    this.router.navigate(['/login']);
+    this.storage.deleteUser(u.id).subscribe({
+      next: () => {
+        this.auth.logout();
+        this.router.navigate(['/login']);
+      },
+      error: (e) => {
+        console.error('delete failed', e);
+        alert('Failed to delete account. Please try again.');
+      }
+    });
+  }
+
+  ngOnDestroy() {
+    this.subCurrent?.unsubscribe();
+    this.subUsers?.unsubscribe();
   }
 }

@@ -20,20 +20,23 @@ export class RegisterComponent {
 
   constructor(private store: StorageService, private router: Router) {}
 
-  //Create New User
   submit() {
     this.error = '';
     this.success = '';
 
-    const u = this.store.createUser(this.username, this.email, this.password);
-    if (!u) {
-      this.error = 'Username already exists or fields are invalid.';
-      return;
-    }
-
-    //If Sucess, clear inputs and navigate to login 
-    this.success = 'Account created! Please log in.';
-    this.username = this.email = this.password = '';
-    setTimeout(() => this.router.navigate(['/login']), 0);
+    this.store.createUser(this.username, this.email, this.password).subscribe({
+      next: (user) => {
+        if (!user) {
+          this.error = 'Username/email/password invalid or already exists.';
+          return;
+        }
+        this.success = 'Account created! Please log in.';
+        this.username = this.email = this.password = '';
+        setTimeout(() => this.router.navigate(['/login']), 300);
+      },
+      error: (e) => {
+        this.error = (e?.error?.message) || 'Failed to create account.';
+      }
+    });
   }
 }

@@ -11,14 +11,18 @@
   </header>
 
   <div class="chat-body">
-    <div *ngIf="messages.length === 0" class="chat-empty">No messages yet.</div>
+    <div *ngIf="(messages$ | async)?.length === 0" class="chat-empty">
+      No messages yet.
+    </div>
 
-    <div *ngFor="let m of messages" class="chat-message">
-      <div class="chat-row">
-        <span class="chat-author">{{ m.username }}</span>
-        <span class="chat-text">{{ m.text }}</span>
+    <div *ngFor="let m of (messages$ | async)">
+      <div class="chat-message">
+        <div class="chat-row">
+          <span class="chat-author">{{ m.username }}</span>
+          <span class="chat-text">{{ m.text }}</span>
+        </div>
+        <div class="chat-when">{{ m.timestamp | date:'d MMMM y' }}</div>
       </div>
-      <div class="chat-when">{{ m.timestamp | date:'d MMMM y' }}</div>
     </div>
   </div>
 

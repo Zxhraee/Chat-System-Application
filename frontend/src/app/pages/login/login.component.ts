@@ -20,12 +20,14 @@ export class LoginComponent {
   constructor(private auth: AuthService, private router: Router) {}
 
   //Submit User Credentials
-  submit(){
-    const user = this.auth.login(this.username, this.password);
-    if (!user) {
-      this.error = 'Invalid user credentials'; 
-      return; 
-    }
-    this.router.navigate(['/menu']);
-  }
+ submit(){
+  this.error = '';
+  this.auth.login(this.username, this.password).subscribe({
+    next: (user) => {
+      if (!user) { this.error = 'Invalid user credentials'; return; }
+      this.router.navigate(['/menu']);
+    },
+    error: () => this.error = 'Login failed',
+  });
+ }
 }

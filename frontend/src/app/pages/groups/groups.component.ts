@@ -7,6 +7,7 @@ import { CommonModule } from '@angular/common';
 import { Group } from '../../models/group';
 import { User } from '../../models/user';
 import { Channel } from '../../models/channel';
+import { Subscription } from 'rxjs';
 
 @Component({
   selector: 'app-groups',
@@ -18,17 +19,18 @@ import { Channel } from '../../models/channel';
 export class GroupsComponent implements OnInit {
   me: User | null = null;
   isSuper = false;
+  groups$ = this.storage.groups$; 
 
   allGroups: Group[] = [];
   myGroups: Group[] = [];
+  allUsers: User[] = [];
+
+  channelsCache: Record<string, Channel[]> = {};
 
   newGroupName = '';
-
   usernameToUpgrade = '';
   usernameToRemove = '';
-
   upgradeUserIdGlobal: string | null = null;
-
 
   addMemberUserId: Record<string, string | null> = {};
   promoteUserId:   Record<string, string | null> = {};
@@ -40,8 +42,12 @@ export class GroupsComponent implements OnInit {
 
   joinRequests:    Record<string, string[]> = {};
   promoteRequests: Record<string, string[]> = {};
-  
+
   removeUserIdGlobal: Record<string, string | null> = {};
+
+  private subMe?: Subscription;
+  private subUsers?: Subscription;
+  private subGroups?: Subscription;
 
   constructor(
     private storage: StorageService,
@@ -50,30 +56,82 @@ export class GroupsComponent implements OnInit {
   ) {}
 
   ngOnInit(): void {
-    this.me = this.auth.currentUser();
-    this.isSuper = this.me?.role === 'SUPER_ADMIN';
-    this.refreshGroups();
-    this.refreshRequests();
+    this.subMe = this.storage.getCurrentUser().subscribe(me => {
+      this.me = me;
+      this.isSuper = this.me?.role === 'SUPER_ADMIN';
+
+      this.subUsers?.unsubscribe();
+      this.subUsers = this.storage.getUsers().subscribe(users => {
+        this.allUsers = users || [];
+
+        this.subGroups?.unsubscribe();
+        this.subGroups = this.storage.getGroups().subscribe(groups => {
+  if (!groups) return;
+  this.allGroups = groups;
+  this.computeMyGroups();
+  this.refreshRequests();
+  this.preloadGeneralChannels();
+});
+
+      });
+    });
   }
 
-  //Load all groups user is in from storage
-  private refreshGroups() {
+
+  private computeMyGroups(): void {
     const uid = this.me?.id || '';
-    this.allGroups = this.storage.getAllGroups();
+    const notGeneral = (g: Group) => !this.isGeneralGroup(g);
 
-    this.myGroups = this.isSuper
-      ? this.allGroups
-      : this.allGroups.filter(g => this.userInGroup(uid, g.id));
+    if (this.isSuper) {
+      this.myGroups = this.allGroups.filter(notGeneral);
+      return;
+    }
+
+    this.myGroups = this.allGroups.filter(g => {
+      if (!notGeneral(g)) return false;
+      const u = this.me;
+      if (!u) return false;
+      if (g.createdBy === u.id) return true;
+      if (Array.isArray(g.adminIds) && g.adminIds.includes(u.id)) return true;
+      return Array.isArray(u.groups) && u.groups.includes(g.id);
+    });
   }
 
-  //Join requests and promote requests for each group
-  private refreshRequests() {
+  private refreshRequests(): void {
     this.joinRequests = {};
     this.promoteRequests = {};
-    for (const g of this.storage.getGroups()) {
-      this.joinRequests[g.id] = this.storage.getJoinRequests(g.id);
-      this.promoteRequests[g.id] = this.storage.getPromotionRequests(g.id);
+
+    for (const g of this.allGroups) {
+      const jr$ = this.storage.getJoinRequests(g.id);
+      if ((jr$ as any)?.subscribe) {
+        (jr$ as any).subscribe((list: string[]) => (this.joinRequests[g.id] = list || []));
+      } else {
+        this.joinRequests[g.id] = (jr$ as unknown as string[]) || [];
+      }
+
+      const pr$ = this.storage.getPromotionRequests(g.id);
+      if ((pr$ as any)?.subscribe) {
+        (pr$ as any).subscribe((list: string[]) => (this.promoteRequests[g.id] = list || []));
+      } else {
+        this.promoteRequests[g.id] = (pr$ as unknown as string[]) || [];
+      }
     }
+  }
+
+  private preloadGeneralChannels(): void {
+    const gen = this.generalGroup();
+    if (!gen) return;
+    this.storage.getChannelsByGroup(gen.id).subscribe(chs => {
+      this.channelsCache[gen.id] = chs || [];
+    });
+  }
+
+  private generalGroup(): Group | null {
+    return (
+      this.allGroups.find(g => g.id === 'GLOBAL') ||
+      this.allGroups.find(g => (g.name || '').toLowerCase() === 'general') ||
+      null
+    );
   }
 
   isCreator(g: Group): boolean {
@@ -97,16 +155,19 @@ export class GroupsComponent implements OnInit {
     return this.isSuper || this.me?.role === 'GROUP_ADMIN';
   }
 
-  //Check user in group/creator or admin
+  isGeneralGroup(g: Group | null): boolean {
+    if (!g) return false;
+    return g.id === 'GLOBAL' || (g.name || '').toLowerCase() === 'general';
+  }
+
   userInGroup(userId: string, groupId: string): boolean {
-    const u = this.storage.getUserById(userId);
-    const g = this.storage.getGroupById(groupId);
+    const u = this.allUsers.find(x => x.id === userId);
+    const g = this.allGroups.find(x => x.id === groupId);
     if (!u || !g) return false;
 
     if (u.groups?.includes(groupId)) return true;
     if (g.createdBy === userId) return true;
     if (Array.isArray(g.adminIds) && g.adminIds.includes(userId)) return true;
-
     return false;
   }
 
@@ -114,48 +175,39 @@ export class GroupsComponent implements OnInit {
     return !!this.me && this.userInGroup(this.me.id, groupId);
   }
 
-getUpgradableUsers(): User[] {
-  return this.storage.getUsers().filter(u => u.role !== 'SUPER_ADMIN');
-}
-
-//Promote User role to Super
-upgradeToSuperGlobal() {
-  if (!this.isSuper) return;
-  const uid = this.upgradeUserIdGlobal;
-  if (!uid) return;
-
-  const u = this.storage.getUserById(uid);
-  if (!u) { alert('User not found'); return; }
-
-  this.storage.setUserRole(uid, 'SUPER_ADMIN');
-  this.upgradeUserIdGlobal = null;
-  this.refreshGroups();
-}
-
-//Get all users apart from group creator and super admin
-getDeletableUsersInGroup(gid: string): User[] {
-  const meId = this.me?.id;
-  const g = this.storage.getGroupById(gid);
-  if (!g) return [];
-
-  return this.usersIn(gid)
-    .filter(u => u.id !== meId)            
-    .filter(u => u.id !== g.createdBy);     
-
-}
-
-  isGeneralGroup(g: Group | null): boolean {
-    if (!g) return false;
-    return g.id === 'G1' || (g.name || '').toLowerCase() === 'general';
+  getUpgradableUsers(): User[] {
+    return this.allUsers.filter(u => u.role !== 'SUPER_ADMIN');
   }
 
-  hasPendingJoin(groupId: string): boolean {
-    if (!this.me) return false;
-    const list = this.joinRequests[groupId] || [];
-    return list.includes(this.me.id);
+  upgradeToSuperGlobal() {
+    if (!this.isSuper) return;
+    const uid = this.upgradeUserIdGlobal;
+    if (!uid) return;
+
+    const u = this.allUsers.find(x => x.id === uid);
+    if (!u) { alert('User not found'); return; }
+
+    const op$ = this.storage.setUserRole(uid, 'SUPER_ADMIN');
+    if ((op$ as any)?.subscribe) {
+      (op$ as any).subscribe(() => {
+        this.upgradeUserIdGlobal = null;
+        this.reloadUsersAndGroups();
+      });
+    } else {
+      this.upgradeUserIdGlobal = null;
+      this.reloadUsersAndGroups();
+    }
   }
 
-  //Users that are not in a group and do not have a pending join request
+  getDeletableUsersInGroup(gid: string): User[] {
+    const meId = this.me?.id;
+    const g = this.allGroups.find(x => x.id === gid);
+    if (!g) return [];
+    return this.usersIn(gid)
+      .filter(u => u.id !== meId)
+      .filter(u => u.id !== g.createdBy);
+  }
+
   get discoverGroups(): Group[] {
     if (this.isSuper) return [];
     return this.allGroups.filter(
@@ -167,223 +219,232 @@ getDeletableUsersInGroup(gid: string): User[] {
   }
 
   username(id: string): string {
-    return this.storage.getUserById(id)?.username ?? id;
+    const u = this.allUsers.find(x => x.id === id);
+    return u?.username ?? id;
   }
 
-  displayName(u: User): string {
-    return `${u.username} (${u.id})`;
-  }
-
-  private allUsers(): User[] {
-    return this.storage.getUsers();
-  }
+  displayName(u: User): string { return `${u.username} (${u.id})`; }
 
   private usersIn(gid: string): User[] {
-    return this.allUsers().filter(u => Array.isArray(u.groups) && u.groups.includes(gid));
+    return this.allUsers.filter(u => Array.isArray(u.groups) && u.groups.includes(gid));
   }
 
   private usersNotIn(gid: string): User[] {
-    return this.allUsers().filter(u => !Array.isArray(u.groups) || !u.groups.includes(gid));
+    return this.allUsers.filter(u => !Array.isArray(u.groups) || !u.groups.includes(gid));
   }
 
-  getAddableUsers(gid: string): User[] {
-    return this.usersNotIn(gid);
-  }
+  getAddableUsers(gid: string): User[] { return this.usersNotIn(gid); }
 
   getPromotableUsers(gid: string): User[] {
-    const g = this.storage.getGroupById(gid);
+    const g = this.allGroups.find(x => x.id === gid);
     if (!g) return [];
     return this.usersIn(gid).filter(u => !(g.adminIds ?? []).includes(u.id));
   }
 
   getRemovableUsers(gid: string): User[] {
-    const g = this.storage.getGroupById(gid);
+    const g = this.allGroups.find(x => x.id === gid);
     if (!g) return [];
     return this.usersIn(gid).filter(u => u.id !== g.createdBy);
   }
 
-  getBannableUsers(gid: string): User[] {
-    return this.usersIn(gid);
-  }
+  getBannableUsers(gid: string): User[] { return this.usersIn(gid); }
 
   channelsOf(gid: string): Channel[] {
-    return this.storage.getChannelsByGroup(gid);
+    return this.channelsCache[gid] || [];
   }
 
-  //Create Griup
+  hasPendingJoin(groupId: string): boolean {
+    const meId = this.me?.id;
+    if (!meId) return false;
+    const list = this.joinRequests[groupId] || [];
+    return list.includes(meId);
+  }
+
+
   createGroup() {
     if (!this.me || !this.canCreateGroup()) return;
     const name = this.newGroupName.trim();
     if (!name) return;
 
-    const { group, firstChannel } = this.storage.addGroup(name, this.me.id);
-    this.newGroupName = '';
-    this.refreshGroups();
-    this.router.navigate(['/chat', group.id, firstChannel.id]);
+    this.storage.addGroup(name, this.me.id).subscribe(result => {
+      this.newGroupName = '';
+      this.reloadUsersAndGroups(() => {
+        this.router.navigate(['/chat', result.group.id, result.firstChannel.id]);
+      });
+    });
   }
 
-  //Rename Group
   rename(g: Group) {
     if (!this.canModify(g)) return;
     const name = prompt('New group name', g.name)?.trim();
     if (!name) return;
-    this.storage.renameGroup(g.id, name);
-    this.refreshGroups();
+    this.storage.renameGroup(g.id, name).subscribe(() => {
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //Delete Group
   remove(groupId: string) {
     const g = this.allGroups.find(x => x.id === groupId);
     if (!g || !this.canModify(g)) return;
     if (this.isGeneralGroup(g)) return;
     if (!confirm(`Delete group "${g.name}"?`)) return;
-    this.storage.deleteGroup(groupId);
-    this.refreshGroups();
+
+    this.storage.deleteGroup(groupId).subscribe(() => {
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //leave Group
   leave(groupId: string) {
-    const g = this.storage.getGroupById(groupId);
-    if (this.isGeneralGroup(g)) {
-      alert('You cannot leave the General group.');
-      return;
-    }
+    const g = this.allGroups.find(x => x.id === groupId) || null;
+    if (this.isGeneralGroup(g)) { alert('You cannot leave the General group.'); return; }
     if (!this.me) return;
-    this.storage.removeUserFromGroup(groupId, this.me.id);
-    this.refreshGroups();
-  }
 
+    this.storage.removeUserFromGroup(groupId, this.me.id).subscribe(() => {
+      this.reloadUsersAndGroups();
+    });
+  }
 
   openChannels(groupId: string) {
     this.router.navigate(['/groups', groupId, 'channels']);
   }
 
-  //Add Channel
   addChannel(groupId: string) {
-    if (!this.isAdmin(this.storage.getGroupById(groupId)!)) return;
+    const g = this.allGroups.find(x => x.id === groupId);
+    if (!g || !this.isAdmin(g)) return;
     const name = prompt('Channel name (e.g., "main")', 'main')?.trim();
     if (!name) return;
-    this.storage.addChannel(groupId, name);
-    this.refreshGroups();
+
+    this.storage.addChannel(groupId, name).subscribe(() => {
+      this.storage.getChannelsByGroup(groupId).subscribe(chs => {
+        this.channelsCache[groupId] = chs || [];
+      });
+    });
   }
 
-  //Add Member to Group
   addMemberByUsername(groupId: string) {
     const uid = this.addMemberUserId[groupId];
     if (!uid) return;
-    this.storage.addUserToGroup(groupId, uid);
-    this.addMemberUserId[groupId] = null;
-    this.refreshGroups();
+
+    this.storage.addUserToGroup(groupId, uid).subscribe(() => {
+      this.addMemberUserId[groupId] = null;
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //Join Request
   requestToJoin(groupId: string) {
     if (!this.me) return;
-    this.storage.requestJoinGroup(groupId, this.me.id);
-    this.refreshRequests();
+    this.storage.requestJoinGroup(groupId, this.me.id).subscribe(() => {
+      this.refreshRequests();
+    });
   }
 
-  //Approve Join Request
   approveJoin(groupId: string, userId: string) {
-    if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
-    this.storage.approveJoin(groupId, userId);
-    this.refreshRequests();
-    this.refreshGroups();
+    const g = this.allGroups.find(x => x.id === groupId);
+    if (!g || !this.canAdmin(g)) return;
+
+    this.storage.approveJoin(groupId, userId).subscribe(() => {
+      this.refreshRequests();
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //Reject Join Request
   rejectJoin(groupId: string, userId: string) {
-    if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
-    this.storage.rejectJoin(groupId, userId);
-    this.refreshRequests();
+    const g = this.allGroups.find(x => x.id === groupId);
+    if (!g || !this.canAdmin(g)) return;
+
+    this.storage.rejectJoin(groupId, userId).subscribe(() => {
+      this.refreshRequests();
+    });
   }
 
-  //Request Admin Promotion
   requestPromotion(groupId: string) {
     const uid = this.promoteUserId[groupId];
     if (!uid) return;
-    this.storage.requestPromotion(groupId, uid);
-    this.promoteUserId[groupId] = null;
-    this.refreshRequests();
+
+    this.storage.requestPromotion(groupId, uid).subscribe(() => {
+      this.promoteUserId[groupId] = null;
+      this.refreshRequests();
+    });
   }
 
-  //Promotion Approval
   approvePromotion(groupId: string, userId: string) {
     if (!this.isSuper) return;
-    this.storage.approvePromotion(groupId, userId);
-    this.refreshRequests();
-    this.refreshGroups();
+    this.storage.approvePromotion(groupId, userId).subscribe(() => {
+      this.refreshRequests();
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //Promotion Rejection
   rejectPromotion(groupId: string, userId: string) {
     if (!this.isSuper) return;
-    this.storage.rejectPromotion(groupId, userId);
-    this.refreshRequests();
+    this.storage.rejectPromotion(groupId, userId).subscribe(() => {
+      this.refreshRequests();
+    });
   }
 
-  //Super promoting user
   promoteNow(groupId: string) {
     if (!this.isSuper) return;
     const uid = this.promoteUserId[groupId];
     if (!uid) { alert('Select a user to promote'); return; }
-    this.storage.approvePromotion(groupId, uid);
-    this.promoteUserId[groupId] = null;
-    this.refreshRequests();
-    this.refreshGroups();
+    this.storage.approvePromotion(groupId, uid).subscribe(() => {
+      this.promoteUserId[groupId] = null;
+      this.refreshRequests();
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //Delete User from Application
   removeAnyUser(groupId: string) {
     if (!this.isSuper) return;
     const uid = this.removeUserIdGlobal[groupId];
     if (!uid) return;
-  
+
     const me = this.me;
     if (uid === me?.id) { alert('You cannot delete yourself.'); return; }
-  
-    const u = this.storage.getUserById(uid);
+
+    const u = this.allUsers.find(x => x.id === uid);
     if (!u) { alert('User not found'); return; }
-  
+
     if (!confirm(`Delete user "${u.username}" from the platform?`)) return;
-  
-    this.storage.deleteUser(uid);
-  
-    this.removeUserIdGlobal[groupId] = null;
-    this.refreshGroups();
+
+    this.storage.deleteUser(uid).subscribe(() => {
+      this.removeUserIdGlobal[groupId] = null;
+      this.reloadUsersAndGroups();
+    });
   }
-  
-  //Remove User from Group
+
   removeMemberFromGroup(groupId: string) {
     const uid = this.removeUserId[groupId];
     if (!uid) { alert('Select a user to remove'); return; }
-    const g = this.storage.getGroupById(groupId);
-    if (g && this.isGeneralGroup(g)) return; 
-    this.storage.removeUserFromGroup(groupId, uid);
-    this.removeUserId[groupId] = null;
-    this.refreshGroups();
+
+    const g = this.allGroups.find(x => x.id === groupId) || null;
+    if (g && this.isGeneralGroup(g)) return;
+
+    this.storage.removeUserFromGroup(groupId, uid).subscribe(() => {
+      this.removeUserId[groupId] = null;
+      this.reloadUsersAndGroups();
+    });
   }
 
-  //Ban User from Channel
   banInChannel(groupId: string) {
     const channelId = this.banChannel[groupId];
     const uid = this.banUserId[groupId];
     const reason = (this.banReason[groupId] || '').trim();
     if (!channelId || !uid || !reason) return;
 
-    if (!this.canAdmin(this.storage.getGroupById(groupId)!)) return;
+    const g = this.allGroups.find(x => x.id === groupId);
+    if (!g || !this.canAdmin(g)) return;
 
-    this.storage.banUser(channelId, uid);
-    this.storage.reportBan(channelId, this.me!.id, uid, reason);
-
-    this.banUserId[groupId] = null;
-    this.banReason[groupId] = '';
-    alert(`Banned user in channel ${channelId} and reported to super admin.`);
+    this.storage.banUser(channelId, uid).subscribe(() => {
+      this.storage.reportBan(channelId, this.me!.id, uid, reason).subscribe(() => {
+        this.banUserId[groupId] = null;
+        this.banReason[groupId] = '';
+        alert(`Banned user in channel ${channelId} and reported to super admin.`);
+      });
+    });
   }
 
   removeChannelId: Record<string, string | null> = {};
 
-  //Remove Channel
   removeChannel(groupId: string) {
     const chId = this.removeChannelId[groupId];
     if (!chId) { alert('Please select a channel to remove.'); return; }
@@ -391,17 +452,43 @@ getDeletableUsersInGroup(gid: string): User[] {
     const g = this.allGroups.find(x => x.id === groupId) || null;
     if (!g || !this.canAdmin(g)) return;
 
-    const ch = this.storage.getChannelById(chId);
+    const chList = this.channelsCache[groupId] || [];
+    const ch = chList.find(c => c.id === chId);
     if (!ch || ch.groupId !== groupId) { alert('Invalid channel selection.'); return; }
 
     if (!confirm(`Delete channel "${ch.name}" (${ch.id}) from group "${g.name}"?`)) return;
 
-    this.storage.deleteChannel(chId);
-    if (!this.storage.getFirstChannelId(groupId)) {
-      this.storage.ensureDefaultChannel(groupId);
-    }
-
-    this.removeChannelId[groupId] = null;
-    this.refreshGroups();
+    this.storage.deleteChannel(chId).subscribe(() => {
+      this.storage.getChannelsByGroup(groupId).subscribe(chs => {
+        this.channelsCache[groupId] = chs || [];
+        if (!this.channelsCache[groupId].length) {
+          this.storage.ensureDefaultChannel(groupId).subscribe(() => {
+            this.storage.getChannelsByGroup(groupId).subscribe(chs2 => {
+              this.channelsCache[groupId] = chs2 || [];
+              this.removeChannelId[groupId] = null;
+              this.reloadUsersAndGroups();
+            });
+          });
+        } else {
+          this.removeChannelId[groupId] = null;
+          this.reloadUsersAndGroups();
+        }
+      });
+    });
   }
+
+  private reloadUsersAndGroups(next?: () => void) {
+  this.storage.getUsers().subscribe(users => {
+    this.allUsers = users || [];
+  });
+
+  this.storage.getGroups().subscribe(groups => {
+    if (groups) {
+      this.allGroups = groups;
+      this.computeMyGroups();
+      this.refreshRequests();
+      if (next) next();
+    }
+  });
+}
 }
