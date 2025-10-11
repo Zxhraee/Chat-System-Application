@@ -27,10 +27,60 @@ async function start() {
       },
     });
 
+    const toHex = (x) => (x?.toHexString?.() ?? String(x || ''));
+
     io.on('connection', (socket) => {
-      console.log('Client connected:', socket.id);
-      socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
-    });
+  console.log('Client connected:', socket.id);
+
+  socket.on('chat:join', ({ channelId, user }) => {
+    try {
+      const room = `channel:${String(channelId)}`;
+      for (const r of socket.rooms) {
+        if (r.startsWith('channel:')) socket.leave(r);
+      }
+      socket.join(room);
+      socket.data.user = user || null;
+
+      socket.to(room).emit('presence:join', {
+        channelId,
+        user: user ? { id: user.id, username: user.username } : null,
+        at: new Date().toISOString(),
+      });
+
+      socket.emit('chat:joined', { channelId });
+    } catch (e) {
+      console.error('chat:join error', e);
+    }
+  });
+
+  socket.on('chat:leave', ({ channelId }) => {
+    try {
+      const room = `channel:${String(channelId)}`;
+      socket.leave(room);
+      socket.to(room).emit('presence:leave', {
+        channelId,
+        user: socket.data.user ? { id: socket.data.user.id, username: socket.data.user.username } : null,
+        at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('chat:leave error', e);
+    }
+  });
+
+  socket.on('disconnecting', () => {
+    for (const r of socket.rooms) {
+      if (r.startsWith('channel:')) {
+        socket.to(r).emit('presence:leave', {
+          channelId: r.replace('channel:', ''),
+          user: socket.data.user ? { id: socket.data.user.id, username: socket.data.user.username } : null,
+          at: new Date().toISOString(),
+        });
+      }
+    }
+  });
+
+  socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
+});
 
 
     const db = await connectDB();
@@ -763,43 +813,72 @@ async function start() {
     });
 
 
-    app.get('/api/channels/:channelId/messages', async (req, res) => {
-      const channelId = asId(req.params.channelId);
-      if (!channelId) return res.status(400).json({ error: 'invalid_channelId' });
+app.get('/api/channels/:channelId/messages', async (req, res) => {
+  try {
+    const channelId = asId(req.params.channelId);
+    if (!channelId) return res.status(400).json({ error: 'invalid_channelId' });
 
-      const limit = Math.min(Number(req.query.limit) || 50, 200);
-      const before = req.query.before ? new Date(req.query.before) : null;
-      const query = { channelId };
-      if (before && !isNaN(before.getTime())) query.createdAt = { $lt: before };
+    const limit = Math.min(Number(req.query.limit) || 50, 200);
+    const before = req.query.before ? new Date(req.query.before) : null;
 
-      const list = await messages.find(query).sort({ createdAt: 1 }).limit(limit).toArray();
-      res.json(list);
+    const query = { channelId };
+    if (before && !isNaN(before.getTime())) {
+      query.createdAt = { $lt: before };
+    }
+
+    const list = await messages
+      .find(query)
+      .sort({ createdAt: 1 })
+      .limit(limit)
+      .toArray();
+
+    res.json(list);
+  } catch (e) {
+    console.error('GET messages error', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
+
+app.post('/api/channels/:channelId/messages', async (req, res) => {
+  try {
+    const channelId = asId(req.params.channelId);
+    const senderId  = asId(req.body.userId);
+    const username  = (req.body.username || '').trim();
+    const body      = (req.body.text || req.body.body || '').trim();
+
+    if (!channelId || !senderId || !body) {
+      return res.status(400).json({ error: 'invalid_payload' });
+    }
+
+    const doc = {
+      channelId,
+      senderId,
+      username: username || undefined,
+      body,
+      createdAt: new Date(),
+    };
+
+    const result = await messages.insertOne(doc);
+    const saved  = { ...doc, _id: result.insertedId };
+
+    const room = `channel:${toHex(channelId)}`;
+    io.to(room).emit('chat:message', {
+      _id: saved._id,
+      channelId: toHex(saved.channelId),
+      senderId: toHex(saved.senderId),
+      username: saved.username,
+      body: saved.body,
+      createdAt: saved.createdAt,
     });
 
-    app.post('/api/channels/:channelId/messages', async (req, res) => {
-      try {
-        const channelId = asId(req.params.channelId);
-        const senderId = asId(req.body.userId);
-        const username = (req.body.username || '').trim();
-        const body = (req.body.text || req.body.body || '').trim();
+    io.emit('messages:update', { channelId: toHex(channelId) });
 
-        const doc = {
-          channelId,
-          senderId,
-          username: isNonEmptyString(username) ? username : undefined,
-          body,
-          meta: req.body.meta || {},
-          createdAt: new Date(),
-        };
-
-        const result = await messages.insertOne(doc);
-        io.emit('messages:update', { channelId });
-        res.status(201).json({ ...doc, _id: result.insertedId });
-      } catch (e) {
-        console.error(e);
-        res.status(500).json({ error: 'server error' });
-      }
-    });
+    res.status(201).json(saved);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'server error' });
+  }
+});
 
 
     app.post('/api/channels/:channelId/bans', async (req, res) => {

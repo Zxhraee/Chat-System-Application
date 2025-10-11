@@ -157,9 +157,21 @@ export class MenuComponent implements OnInit, OnDestroy {
 
   private setChannel(id: string | null) {
     if (this.channelId === id) return;
+
+    // leave the previous room if switching
+    if (this.channelId) this.chat.leaveChannel(this.channelId);
+
     this.channelId = id;
     this.subMsgs?.unsubscribe();
+
     if (!id) { this.messages = []; return; }
+
+    // join the channel room with minimal user info (for presence)
+    const me = this.user();
+    const minimalUser = me ? { id: me.id, username: me.username } : null;
+    this.chat.joinChannel(id, minimalUser);
+
+    // bind the realtime + history stream
     this.subMsgs = this.chat.messages$(id).subscribe(list => (this.messages = list));
   }
 
@@ -176,10 +188,15 @@ export class MenuComponent implements OnInit, OnDestroy {
   send(): void {
     const text = this.input.trim();
     if (!text || !this.channelId) return;
-    this.chat.sendMessage(this.channelId, this.me?.id || '', text).subscribe(sent => {
-      if (sent) this.input = '';
-    });
+
+    this.chat
+      .sendMessage(this.channelId, this.me?.id || '', text, this.me?.username)
+      .subscribe({
+        next: () => (this.input = ''),
+        error: (e) => console.error('send failed', e),
+      });
   }
+
 
   user(): User | null { return this.auth.currentUser(); }
 
@@ -196,6 +213,7 @@ export class MenuComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.channelId) this.chat.leaveChannel(this.channelId);
     this.subMe?.unsubscribe();
     this.subUserGroups?.unsubscribe();
     this.subAllGroups?.unsubscribe();

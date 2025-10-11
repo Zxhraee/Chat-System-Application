@@ -7,7 +7,7 @@ import { ChatService } from '../../services/chat.service';
 import { StorageService } from '../../services/storage.service';
 import { Message } from '../../models/message';
 import { Group } from '../../models/group';
-import { Channel } from '../../models/channel'; 
+import { Channel } from '../../models/channel';
 import { User } from '../../models/user';
 
 
@@ -34,6 +34,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   private subRoute?: Subscription;
   private subGroup?: Subscription;
   private subChans?: Subscription;
+  private subMe?: Subscription;
 
   constructor(
     private route: ActivatedRoute,
@@ -42,18 +43,20 @@ export class ChatComponent implements OnInit, OnDestroy {
     private store: StorageService
   ) {}
 
-  
   ngOnInit(): void {
-    this.subRoute = this.route.paramMap.subscribe(params => {
-        const gid = this.route.snapshot.paramMap.get('groupId')!;
-  const cid = this.route.snapshot.paramMap.get('channelId');
+    this.subMe = this.store.getCurrentUser().subscribe(u => (this.me = u));
 
-  if (!cid) {
-    this.store.ensureDefaultChannel(gid).subscribe(ch => {
-      this.router.navigate(['/chat', gid, ch.id]);
-    });
-    return;
-  }
+    this.subRoute = this.route.paramMap.subscribe(() => {
+      const gid = this.route.snapshot.paramMap.get('groupId')!;
+      const cid = this.route.snapshot.paramMap.get('channelId');
+
+      if (!cid) {
+        this.store.ensureDefaultChannel(gid).subscribe(ch => {
+          this.router.navigate(['/chat', gid, ch.id]);
+        });
+        return;
+      }
+
       this.groupId = gid;
 
       this.subGroup?.unsubscribe();
@@ -68,7 +71,7 @@ export class ChatComponent implements OnInit, OnDestroy {
           const chosen = byParam?.id || this.channels[0]?.id || '';
 
           if (!chosen) {
-            this.store.ensureDefaultChannel(gid).subscribe(created => {
+            this.store.ensureDefaultChannel(gid).subscribe(() => {
               this.store.getChannelsByGroup(gid).subscribe(chs2 => {
                 this.channels = chs2 || [];
                 this.setActiveChannel(this.channels[0]?.id || '');
@@ -84,9 +87,17 @@ export class ChatComponent implements OnInit, OnDestroy {
 
   private setActiveChannel(id: string) {
     if (!id) return;
+
+    if (this.channelId && this.channelId !== id) {
+      this.chat.leaveChannel(this.channelId);
+    }
+
     this.channelId = id;
     const ch = this.channels.find(c => c.id === id);
     this.activeChannelName = ch?.name || '';
+
+    const minimalUser = this.me ? { id: this.me.id, username: this.me.username } : null;
+    this.chat.joinChannel(id, minimalUser);
     this.messages$ = this.chat.messages$(id);
   }
 
@@ -95,21 +106,22 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   send(): void {
-  const text = this.input.trim();
-  if (!text) return;
+    const text = this.input.trim();
+    if (!text || !this.channelId) return;
 
-  if (!this.channelId) return;         
-  const cid: string = this.channelId;    
-
-  this.chat.sendMessage(cid, this.me?.id || '', text).subscribe((sent: Message | null) => {
-    if (sent) this.input = '';
-  });
-}
-
+    this.chat
+      .sendMessage(this.channelId, this.me?.id || '', text, this.me?.username)
+      .subscribe({
+        next: () => { this.input = ''; },   
+        error: (e) => console.error('send failed', e),
+      });
+  }
 
   ngOnDestroy(): void {
+    if (this.channelId) this.chat.leaveChannel(this.channelId);
     this.subRoute?.unsubscribe();
     this.subGroup?.unsubscribe();
     this.subChans?.unsubscribe();
+    this.subMe?.unsubscribe();
   }
 }
