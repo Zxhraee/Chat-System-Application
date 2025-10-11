@@ -1,7 +1,7 @@
 import { User } from '../models/user';
 import { Group } from '../models/group';
 import { Channel } from '../models/channel';
-import { ChatMessage } from '../models/message';
+import { Message } from '../models/message';
 
 export type ServerId = string;
 
@@ -53,19 +53,22 @@ export const mapUser = (s: SUser): User => ({
 export const mapGroup = (s: SGroup): Group => ({
   id: s._id,
   name: s.name,
-  adminIds: s.adminIds.map(String),
+  ownerId: String(s.ownerId),              
+  adminIds: (s.adminIds || []).map(String),
+  memberIds: (s.memberIds || []).map(String), 
+  createdAt: s.createdAt,
   createdBy: String(s.ownerId),
-  channelId: [], 
 });
+
 
 export const mapChannel = (s: SChannel): Channel => ({
   id: s._id,
   groupId: String(s.groupId),
   name: s.name,
-  memberId: [], 
+  memberIds: [], 
 });
 
-export const mapMessage = (s: SMessage): ChatMessage => ({
+export const mapMessage = (s: SMessage): Message => ({
   id: s._id,
   channelId: String(s.channelId),
   userId: String(s.senderId),

@@ -5,13 +5,16 @@ import { io, Socket } from 'socket.io-client';
 import { User } from '../models/user';
 import { Group } from '../models/group';
 import { Channel } from '../models/channel';
-import { ChatMessage } from '../models/message';
+import { Message } from '../models/message';
+
+const sid = (x: any): string =>
+  typeof x === 'string' ? x : x?.$oid ?? x?.toString?.() ?? '';
 
 type SUser = {
   _id: string;
   username: string;
   email: string;
-  password?: string; 
+  password?: string;
   role: 'SUPER_ADMIN' | 'GROUP_ADMIN' | 'USER';
   groups?: string[];
   createdAt?: string;
@@ -41,41 +44,45 @@ type SMessage = {
   username?: string;
   body: string;
   meta?: any;
-  createdAt: string; 
+  createdAt: string;
 };
 
 const toUser = (s: SUser): User => ({
-  id: s._id,
+  id: sid(s._id),
   username: s.username,
   email: s.email,
- password: s.password ?? '',
+  password: s.password ?? '',
   role: s.role,
-  groups: (s.groups || []).map(String),
+  groups: (s.groups || []).map(sid),
 });
 
-const toGroup = (s: SGroup): Group => ({
-  id: s._id,
+const toGroup = (s: any): Group => ({
+  id: sid(s._id),
   name: s.name,
-  adminIds: s.adminIds.map(String),
-  createdBy: String(s.ownerId),
-  channelId: [],
+  ownerId: sid(s.ownerId),
+  adminIds: (s.adminIds || []).map(sid),
+  memberIds: (s.memberIds || []).map(sid),
+  createdAt: s.createdAt,
+  createdBy: sid(s.ownerId),
 });
+
 
 const toChannel = (s: SChannel): Channel => ({
-  id: s._id,
-  groupId: String(s.groupId),
+  id: sid(s._id),
+  groupId: sid(s.groupId),
   name: s.name,
-  memberId: [],
+  memberIds: [],
 });
 
-const toMsg = (s: SMessage): ChatMessage => ({
-  id: s._id,
-  channelId: String(s.channelId),
-  userId: String(s.senderId),
-  username: s.username || s.senderId,
+const toMsg = (s: SMessage): Message => ({
+  id: sid(s._id),
+  channelId: sid(s.channelId),
+  userId: sid(s.senderId),
+  username: s.username || sid(s.senderId),
   text: s.body,
   timestamp: new Date(s.createdAt).getTime(),
 });
+
 
 type Requests = { [groupId: string]: { join: string[]; promote: string[] } };
 type BanEntry = { channelId: string; userId: string };
@@ -87,16 +94,22 @@ type Reports = Report[];
 export class StorageService {
   private base = 'http://localhost:3000/api';
 
-  private usersSubject = new BehaviorSubject<User[]>([]);
-  private groupsSubject = new BehaviorSubject<Group[]>([]);
+  private usersSubject = new BehaviorSubject<User[]>(
+    JSON.parse(localStorage.getItem('cache_users') || '[]')
+  );
+  private groupsSubject = new BehaviorSubject<Group[]>(
+    JSON.parse(localStorage.getItem('cache_groups') || '[]')
+  );
+  private channelsSubject = new BehaviorSubject<Channel[]>(
+    JSON.parse(localStorage.getItem('cache_channels') || '[]')
+  );
   public groups$ = this.groupsSubject.asObservable();
-  private channelsSubject = new BehaviorSubject<Channel[]>([]);
 
   private usersLoaded = false;
   private groupsLoaded = false;
   private channelsLoaded = false;
 
-  // localStorage keys 
+
   Keys = {
     Session: 'key_session',
     RegisterRequests: 'key_register_requests',
@@ -104,48 +117,47 @@ export class StorageService {
     Reports: 'key_reports',
   } as const;
 
-private socket: Socket;
+  private socket: Socket;
 
-constructor(private http: HttpClient) {
-  // Connect to backend Socket.IO server
-  this.socket = io('http://localhost:3000', {
-    transports: ['websocket'],
-  });
+  constructor(private http: HttpClient) {
 
-  
 
-  // Log connection status
-  this.socket.on('connect', () => console.log('🟢 Connected to Socket.IO server'));
-  this.socket.on('disconnect', () => console.log('🔴 Disconnected from Socket.IO server'));
+    this.socket = io('http://localhost:3000', {
+      transports: ['websocket'],
+    });
 
-  fromEvent(this.socket, 'groups:update').subscribe(() => {
-  console.log('📡 Real-time update (RxJS): Groups changed');
-  this.refreshGroups();
-});
 
-fromEvent(this.socket, 'channels:update').subscribe(() => {
-  console.log('📡 Real-time update (RxJS): Channels changed');
-  this.refreshChannels();
-});
 
-fromEvent(this.socket, 'users:update').subscribe(() => {
-  console.log('📡 Real-time update (RxJS): Users changed');
-  this.refreshUsers();
-});
-}
+
+    this.socket.on('connect', () => console.log('Connected to Socket.IO server'));
+    this.socket.on('disconnect', () => console.log('Disconnected from Socket.IO server'));
+
+    fromEvent(this.socket, 'groups:update').subscribe(() => {
+      this.refreshGroups();
+    });
+
+    fromEvent(this.socket, 'channels:update').subscribe(() => {
+      this.refreshChannels();
+    });
+
+    fromEvent(this.socket, 'users:update').subscribe(() => {
+      this.refreshUsers();
+    });
+  }
 
   private refreshUsers(): void {
     this.http.get<SUser[]>(`${this.base}/users`).subscribe({
       next: (arr) => {
-        this.usersSubject.next((arr || []).map(toUser));
+        const users = (arr || []).map(toUser);
+        this.usersSubject.next(users);
+        localStorage.setItem('cache_users', JSON.stringify(users));
         this.usersLoaded = true;
       },
-      error: () => {
-        this.usersSubject.next([]);
-        this.usersLoaded = true;
-      },
+      error: () => { this.usersLoaded = true; }
     });
   }
+
+
 
   getUsers(): Observable<User[]> {
     if (!this.usersLoaded) this.refreshUsers();
@@ -191,45 +203,51 @@ fromEvent(this.socket, 'users:update').subscribe(() => {
   }
 
   deleteUser(userId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.delete(`${this.base}/users/${userId}`).subscribe({
-      next: () => {
-        this.usersSubject.next(this.usersSubject.getValue().filter(u => u.id !== userId));
-        observer.next(true); observer.complete();
-      },
-      error: (e) => observer.error(e),
+    return new Observable<boolean>((observer) => {
+      this.http.delete(`${this.base}/users/${userId}`).subscribe({
+        next: () => {
+          this.usersSubject.next(this.usersSubject.getValue().filter(u => u.id !== userId));
+          observer.next(true); observer.complete();
+        },
+        error: (e) => observer.error(e),
+      });
     });
-  });
-}
+  }
 
   setUserRole(userId: string, role: User['role']): Observable<void> {
-  return new Observable<void>((observer) => {
-    this.http.patch<SUser>(`${this.base}/users/${userId}`, { role }).subscribe({
-      next: (updated) => {
-        const v = toUser(updated);
-        this.usersSubject.next(this.usersSubject.getValue().map(u => u.id === userId ? v : u));
-        observer.next(); observer.complete();
-      },
-      error: (e) => observer.error(e),
+    return new Observable<void>((observer) => {
+      this.http.patch<any>(`${this.base}/users/${userId}`, { role }).subscribe({
+        next: (updated) => {
+          if (updated && (updated._id || updated.id)) {
+            const v = toUser(updated as SUser);
+            this.usersSubject.next(this.usersSubject.getValue().map(u => u.id === userId ? v : u));
+          } else {
+            this.refreshUsers();
+          }
+          observer.next(); observer.complete();
+        },
+        error: (e) => observer.error(e),
+      });
     });
-  });
-}
+  }
+
+  onGroupsUpdated(cb: () => void) {
+    fromEvent(this.socket, 'groups:update').subscribe(cb);
+  }
+
 
 
   private refreshGroups(): void {
-  this.http.get<SGroup[]>(`${this.base}/groups`).subscribe({
-    next: (arr) => {
-      const groups = (arr || []).map(toGroup);
-      if (JSON.stringify(groups) !== JSON.stringify(this.groupsSubject.getValue())) {
+    this.http.get<SGroup[]>(`${this.base}/groups`).subscribe({
+      next: (arr) => {
+        const groups = (arr || []).map(toGroup);
         this.groupsSubject.next(groups);
-      }
-      this.groupsLoaded = true;
-    },
-    error: (err) => {
-      console.error('Error refreshing groups:', err);
-    },
-  });
-}
+        localStorage.setItem('cache_groups', JSON.stringify(groups));
+        this.groupsLoaded = true;
+      },
+      error: () => { this.groupsLoaded = true; }
+    });
+  }
 
 
   getGroups(): Observable<Group[]> {
@@ -273,115 +291,116 @@ fromEvent(this.socket, 'users:update').subscribe(() => {
   }
 
   renameGroup(groupId: string, name: string): Observable<Group | null> {
-  return new Observable<Group | null>((observer) => {
-    this.http.patch<any>(`${this.base}/groups/${groupId}`, { name }).subscribe({
-      next: (sg) => {
-        if (!sg || sg.error) {
-          console.error('Rename group failed:', sg?.error || 'Unknown error');
-          observer.next(null);
+    return new Observable<Group | null>((observer) => {
+      this.http.patch<any>(`${this.base}/groups/${groupId}`, { name }).subscribe({
+        next: (sg) => {
+
+          const g = toGroup(sg);
+
+          const current = this.groupsSubject.getValue();
+          const temp = current.map(g => g.id === groupId ? { ...g, name } : g);
+          this.groupsSubject.next(temp);
+          const updated = current.map(x => x.id === groupId ? g : x);
+          this.groupsSubject.next([...updated]);
+          observer.next(g);
           observer.complete();
-          return;
-        }
-
-        const g = toGroup(sg);
-
-const current = this.groupsSubject.getValue();
-const temp = current.map(g => g.id === groupId ? { ...g, name } : g);
-this.groupsSubject.next(temp);
-        const updated = current.map(x => x.id === groupId ? g : x);
-        this.groupsSubject.next([...updated]);
-        observer.next(g);
-        observer.complete();
-      },
-      error: (e) => {
-        console.error('HTTP rename error:', e);
-        observer.error(e);
-      },
+        },
+      });
     });
-  });
-}
+  }
 
   deleteGroup(groupId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.delete(`${this.base}/groups/${groupId}`).subscribe({
-      next: () => {
-        this.groupsSubject.next(this.groupsSubject.getValue().filter(g => g.id !== groupId));
-        observer.next(true); observer.complete();
-      },
-      error: (e) => observer.error(e),
-    });
-  });
-}
-
-  getGroupsForUser(userId: string): Observable<Group[]> {
-  return new Observable<Group[]>((observer) => {
-    const sub1 = this.getGroups().subscribe((groups) => {
-      const sub2 = this.getUserById(userId).subscribe((u) => {
-        if (!u) { observer.next([]); observer.complete(); return; }
-observer.next(groups.filter((g) =>
-  g.name === 'General' ||         
-  g.createdBy === u.id ||
-          (Array.isArray(g.adminIds) && g.adminIds.includes(u.id)) ||
-          (Array.isArray(u.groups) && u.groups.includes(g.id))
-        ));
-        observer.complete();
+    return new Observable<boolean>((observer) => {
+      this.http.delete(`${this.base}/groups/${groupId}`).subscribe({
+        next: () => {
+          this.groupsSubject.next(this.groupsSubject.getValue().filter(g => g.id !== groupId));
+          observer.next(true); observer.complete();
+        },
+        error: (e) => observer.error(e),
       });
-      (observer as any).add?.(() => sub2.unsubscribe());
     });
-    return () => sub1.unsubscribe();
-  });
-}
+  }
+
+
+  getGroupsForUser(userId: string) {
+    const uid = sid(userId);
+    const cacheKey = `cache_user_groups_${uid}`;
+
+    return new Observable<Group[]>((observer) => {
+
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || '[]');
+      if (cached.length) observer.next(cached as Group[]);
+
+
+      const params = new HttpParams().set('t', Date.now().toString());
+      const headers = { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' };
+
+      this.http.get<any[]>(`${this.base}/users/${uid}/groups`, { params, headers })
+        .subscribe({
+          next: (arr) => {
+            const fresh = (arr || []).map(toGroup);
+            localStorage.setItem(cacheKey, JSON.stringify(fresh));
+            observer.next(fresh);
+            observer.complete();
+          },
+          error: (e) => {
+            observer.complete();
+          }
+        });
+    });
+  }
+
+
+
 
 
   addUserToGroup(groupId: string, userId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.post(`${this.base}/groups/${groupId}/members`, { userId }).subscribe({
-      next: () => { observer.next(true); observer.complete(); },
-      error: (e) => observer.error(e),
+    return new Observable<boolean>((observer) => {
+      this.http.post(`${this.base}/groups/${groupId}/members`, { userId }).subscribe({
+        next: () => { observer.next(true); observer.complete(); },
+        error: (e) => observer.error(e),
+      });
     });
-  });
-}
+  }
 
 
   removeUserFromGroup(groupId: string, userId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.delete(`${this.base}/groups/${groupId}/members/${userId}`).subscribe({
-      next: () => { observer.next(true); observer.complete(); },
-      error: (e) => observer.error(e),
+    return new Observable<boolean>((observer) => {
+      this.http.delete(`${this.base}/groups/${groupId}/members/${userId}`).subscribe({
+        next: () => { observer.next(true); observer.complete(); },
+        error: (e) => observer.error(e),
+      });
     });
-  });
-}
+  }
 
   addAdminToGroup(groupId: string, userId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.post(`${this.base}/groups/${groupId}/admins`, { userId }).subscribe({
-      next: () => { observer.next(true); observer.complete(); },
-      error: (e) => observer.error(e),
+    return new Observable<boolean>((observer) => {
+      this.http.post(`${this.base}/groups/${groupId}/admins`, { userId }).subscribe({
+        next: () => { observer.next(true); observer.complete(); },
+        error: (e) => observer.error(e),
+      });
     });
-  });
 
-}removeAdminFromGroup(groupId: string, userId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.delete(`${this.base}/groups/${groupId}/admins/${userId}`).subscribe({
-      next: () => { observer.next(true); observer.complete(); },
-      error: (e) => observer.error(e),
+  } removeAdminFromGroup(groupId: string, userId: string): Observable<boolean> {
+    return new Observable<boolean>((observer) => {
+      this.http.delete(`${this.base}/groups/${groupId}/admins/${userId}`).subscribe({
+        next: () => { observer.next(true); observer.complete(); },
+        error: (e) => observer.error(e),
+      });
     });
-  });
-}
+  }
 
   private refreshChannels(): void {
     this.http.get<SChannel[]>(`${this.base}/channels`).subscribe({
       next: (arr) => {
-        this.channelsSubject.next((arr || []).map(toChannel));
+        const chans = (arr || []).map(toChannel);
+        this.channelsSubject.next(chans);
+        localStorage.setItem('cache_channels', JSON.stringify(chans));
         this.channelsLoaded = true;
       },
-      error: () => {
-        this.channelsSubject.next([]);
-        this.channelsLoaded = true;
-      },
+      error: () => { this.channelsLoaded = true; }
     });
   }
-
   getChannels(): Observable<Channel[]> {
     if (!this.channelsLoaded) this.refreshChannels();
     return this.channelsSubject.asObservable();
@@ -443,23 +462,23 @@ observer.next(groups.filter((g) =>
   }
 
   deleteChannel(channelId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.delete(`${this.base}/channels/${channelId}`).subscribe({
-      next: () => {
-        this.channelsSubject.next(this.channelsSubject.getValue().filter(c => c.id !== channelId));
-        observer.next(true); observer.complete();
-      },
-      error: (e) => observer.error(e),
+    return new Observable<boolean>((observer) => {
+      this.http.delete(`${this.base}/channels/${channelId}`).subscribe({
+        next: () => {
+          this.channelsSubject.next(this.channelsSubject.getValue().filter(c => c.id !== channelId));
+          observer.next(true); observer.complete();
+        },
+        error: (e) => observer.error(e),
+      });
     });
-  });
-}
+  }
 
 
-  getMessagesForChannel(channelId: string, limit = 50, beforeISO?: string): Observable<ChatMessage[]> {
+  getMessagesForChannel(channelId: string, limit = 50, beforeISO?: string): Observable<Message[]> {
     let params = new HttpParams().set('limit', String(Math.max(1, Math.min(limit, 200))));
     if (beforeISO) params = params.set('before', beforeISO);
 
-    return new Observable<ChatMessage[]>((observer) => {
+    return new Observable<Message[]>((observer) => {
       this.http
         .get<SMessage[]>(`${this.base}/channels/${channelId}/messages`, { params })
         .subscribe({
@@ -472,11 +491,11 @@ observer.next(groups.filter((g) =>
     });
   }
 
-  sendMessage(channelId: string, authorId: string, text: string): Observable<ChatMessage | null> {
+  sendMessage(channelId: string, authorId: string, text: string): Observable<Message | null> {
     const t = (text || '').trim();
     if (!t) return of(null);
 
-    return new Observable<ChatMessage | null>((observer) => {
+    return new Observable<Message | null>((observer) => {
       const sub = this.getUserById(authorId).subscribe((u) => {
         const payload = { userId: authorId, username: u?.username ?? authorId, text: t };
         this.http.post<SMessage>(`${this.base}/channels/${channelId}/messages`, payload).subscribe({
@@ -493,7 +512,24 @@ observer.next(groups.filter((g) =>
 
 
   getSession(): Observable<{ userId: string } | null> {
-    return of(JSON.parse(localStorage.getItem(this.Keys.Session) || 'null'));
+    try {
+      const ls = localStorage;
+      const s = JSON.parse(ls.getItem(this.Keys.Session) || 'null');
+      const u = JSON.parse(ls.getItem('user') || 'null');
+      const token = ls.getItem('jwt') || '';
+      const idFromToken = token.startsWith('session_') ? token.slice('session_'.length) : null;
+
+      const ids = [s?.userId, u?.id, idFromToken].filter(Boolean);
+      const userId = ids[0] || null;
+
+      if (userId && s?.userId !== userId) {
+        ls.setItem(this.Keys.Session, JSON.stringify({ userId }));
+      }
+
+      return of(userId ? { userId } : null);
+    } catch {
+      return of(null);
+    }
   }
 
   setSession(v: { userId: string } | null): Observable<void> {
@@ -552,113 +588,104 @@ observer.next(groups.filter((g) =>
   }
 
 
-requestPromotion(groupIdOrUserId: string, maybeUserId?: string): Observable<void> {
-  const userId = maybeUserId ?? groupIdOrUserId;
-  return new Observable<void>((observer) => {
-    this.http.post(`${this.base}/users/${userId}/request-promotion`, {}).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete()
+  requestPromotion(groupIdOrUserId: string, maybeUserId?: string): Observable<void> {
+    const userId = maybeUserId ?? groupIdOrUserId;
+    return new Observable<void>((observer) => {
+      this.http.post(`${this.base}/users/${userId}/request-promotion`, {}).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete()
+      });
     });
-  });
-}
+  }
 
-// Approve promotion
-approvePromotion(groupIdOrUserId: string, maybeUserId?: string): Observable<void> {
-  const userId = maybeUserId ?? groupIdOrUserId;
-  return new Observable<void>((observer) => {
-    this.http.post(`${this.base}/users/${userId}/promote`, {}).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete()
+  approvePromotion(groupIdOrUserId: string, maybeUserId?: string): Observable<void> {
+    const userId = maybeUserId ?? groupIdOrUserId;
+    return new Observable<void>((observer) => {
+      this.http.post(`${this.base}/users/${userId}/promote`, {}).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete()
+      });
     });
-  });
-}
+  }
 
-// Reject promotion
-rejectPromotion(groupIdOrUserId: string, maybeUserId?: string): Observable<void> {
-  const userId = maybeUserId ?? groupIdOrUserId;
-  return new Observable<void>((observer) => {
-    this.http.patch(`${this.base}/users/${userId}`, { promotionRequested: false }).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete()
+  rejectPromotion(groupIdOrUserId: string, maybeUserId?: string): Observable<void> {
+    const userId = maybeUserId ?? groupIdOrUserId;
+    return new Observable<void>((observer) => {
+      this.http.patch(`${this.base}/users/${userId}`, { promotionRequested: false }).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete()
+      });
     });
-  });
-}
+  }
 
 
-getPromotionRequests(groupId: string): Observable<string[]> {
-  return of([]);
-}
+  getPromotionRequests(groupId: string): Observable<string[]> {
+    return of([]);
+  }
 
 
-// Promote to SUPER_ADMIN manually
-makeSuperAdmin(userId: string): Observable<void> {
-  return new Observable<void>((observer) => {
-    this.http.post(`${this.base}/users/${userId}/super`, {}).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete()
+  makeSuperAdmin(userId: string): Observable<void> {
+    return new Observable<void>((observer) => {
+      this.http.post(`${this.base}/users/${userId}/super`, {}).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete()
+      });
     });
-  });
-}
+  }
 
 
 
-// Check if user is banned
-isBanned(channelId: string, userId: string): Observable<boolean> {
-  return new Observable<boolean>((observer) => {
-    this.http.get<{ banned: boolean }>(`${this.base}/channels/${channelId}/bans/${userId}`).subscribe({
-      next: (r) => observer.next(!!r.banned),
-      error: () => observer.next(false),
-      complete: () => observer.complete(),
+  isBanned(channelId: string, userId: string): Observable<boolean> {
+    return new Observable<boolean>((observer) => {
+      this.http.get<{ banned: boolean }>(`${this.base}/channels/${channelId}/bans/${userId}`).subscribe({
+        next: (r) => observer.next(!!r.banned),
+        error: () => observer.next(false),
+        complete: () => observer.complete(),
+      });
     });
-  });
-}
+  }
 
-// Ban user in a channel
-banUser(channelId: string, userId: string): Observable<void> {
-  return new Observable<void>((observer) => {
-    this.http.post(`${this.base}/channels/${channelId}/bans`, { userId }).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete(),
+  banUser(channelId: string, userId: string): Observable<void> {
+    return new Observable<void>((observer) => {
+      this.http.post(`${this.base}/channels/${channelId}/bans`, { userId }).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete(),
+      });
     });
-  });
-}
+  }
 
-// Unban user in a channel
-unbanUser(channelId: string, userId: string): Observable<void> {
-  return new Observable<void>((observer) => {
-    this.http.delete(`${this.base}/channels/${channelId}/bans/${userId}`).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete(),
+  unbanUser(channelId: string, userId: string): Observable<void> {
+    return new Observable<void>((observer) => {
+      this.http.delete(`${this.base}/channels/${channelId}/bans/${userId}`).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete(),
+      });
     });
-  });
-}
+  }
 
-// Get list of banned users for a channel
-getChannelBans(channelId: string): Observable<{ userId: string }[]> {
-  return this.http.get<{ userId: string }[]>(`${this.base}/channels/${channelId}/bans`);
-}
+  getChannelBans(channelId: string): Observable<{ userId: string }[]> {
+    return this.http.get<{ userId: string }[]>(`${this.base}/channels/${channelId}/bans`);
+  }
 
 
 
-// Submit a ban report
-reportBan(channelId: string, bannerId: string, bannedId: string, reason: string): Observable<void> {
-  return new Observable<void>((observer) => {
-    this.http.post(`${this.base}/reports`, { channelId, bannerId, bannedId, reason }).subscribe({
-      next: () => observer.next(),
-      error: (e) => observer.error(e),
-      complete: () => observer.complete()
+  reportBan(channelId: string, bannerId: string, bannedId: string, reason: string): Observable<void> {
+    return new Observable<void>((observer) => {
+      this.http.post(`${this.base}/reports`, { channelId, bannerId, bannedId, reason }).subscribe({
+        next: () => observer.next(),
+        error: (e) => observer.error(e),
+        complete: () => observer.complete()
+      });
     });
-  });
-}
+  }
 
-// Get all reports (super admin)
-getAllReports(): Observable<any[]> {
-  return this.http.get<any[]>(`${this.base}/reports`);
-}
+  getAllReports(): Observable<any[]> {
+    return this.http.get<any[]>(`${this.base}/reports`);
+  }
 }

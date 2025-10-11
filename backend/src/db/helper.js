@@ -1,16 +1,20 @@
 const { ObjectId } = require('mongodb');
 
-function asId(v) {
-  if (!v) return null;
+function asId(val) {
+  if (!val) return null;
   try {
-    return v instanceof ObjectId ? v : new ObjectId(String(v));
+    if (val instanceof ObjectId) return val;
+    if (typeof val === 'string' && ObjectId.isValid(val)) {
+      return new ObjectId(val);
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
-function isNonEmptyString(s) {
-  return typeof s === 'string' && s.trim().length > 0;
+function isNonEmptyString(x) {
+  return typeof x === 'string' && x.trim().length > 0;
 }
 
-module.exports = { asId, isNonEmptyString, ObjectId };
+module.exports = { asId, isNonEmptyString };

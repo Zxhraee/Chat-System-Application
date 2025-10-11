@@ -5,9 +5,10 @@ import { ActivatedRoute, Router, RouterModule } from '@angular/router';
 import { Subscription, Observable, of } from 'rxjs';
 import { ChatService } from '../../services/chat.service';
 import { StorageService } from '../../services/storage.service';
-import { ChatMessage } from '../../models/message';
+import { Message } from '../../models/message';
 import { Group } from '../../models/group';
 import { Channel } from '../../models/channel'; 
+import { User } from '../../models/user';
 
 
 @Component({
@@ -18,9 +19,10 @@ import { Channel } from '../../models/channel';
   styleUrls: ['./chat.component.scss'],
 })
 export class ChatComponent implements OnInit, OnDestroy {
+  me: User | null = null;
   input = '';
 
-  messages$: Observable<ChatMessage[]> = of([]);
+  messages$: Observable<Message[]> = of([]);
 
   activeGroup: Group | null = null;
   activeChannelName = '';
@@ -40,6 +42,7 @@ export class ChatComponent implements OnInit, OnDestroy {
     private store: StorageService
   ) {}
 
+  
   ngOnInit(): void {
     this.subRoute = this.route.paramMap.subscribe(params => {
         const gid = this.route.snapshot.paramMap.get('groupId')!;
@@ -98,7 +101,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   if (!this.channelId) return;         
   const cid: string = this.channelId;    
 
-  this.chat.send(cid, text).subscribe((sent: ChatMessage | null) => {
+  this.chat.sendMessage(cid, this.me?.id || '', text).subscribe((sent: Message | null) => {
     if (sent) this.input = '';
   });
 }

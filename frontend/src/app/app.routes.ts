@@ -1,5 +1,7 @@
-import { Routes } from '@angular/router';
+import { Routes, CanActivateFn } from '@angular/router';
 import { AuthGuard } from './guards/auth.guard';
+import { Router } from '@angular/router';
+import { AuthService } from './services/auth.service';
 import { RoleGuard } from './guards/role.guard';
 import { LoginComponent } from './pages/login/login.component';
 import { MenuComponent } from './pages/menu/menu.component';
@@ -7,14 +9,22 @@ import { UsersComponent } from './pages/users/users.component';
 import { GroupsComponent } from './pages/groups/groups.component';
 import { ChatComponent } from './pages/chat/chat.component';
 import { RegisterComponent } from './pages/register/register.component'; 
-import { CanActivateFn, Router } from '@angular/router';
 import { inject } from '@angular/core';
 
-export const authGuard: CanActivateFn = () => {
-  const session = JSON.parse(localStorage.getItem('key_session') || 'null');
-  if (session?.userId) return true;
-  inject(Router).navigate(['/login']);
-  return false;
+
+export const mustBeLoggedIn: CanActivateFn = () => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  return auth.isLoggedIn() ? true : router.createUrlTree(['/login']);
+};
+
+export const hasRoles: CanActivateFn = (route) => {
+  const auth = inject(AuthService);
+  const router = inject(Router);
+  const allowed: string[] = (route.data?.['roles'] as string[]) || [];
+  const user = auth.currentUser();
+  const ok = !!user && allowed.includes(user.role);
+  return ok ? true : router.createUrlTree(['/menu']); 
 };
 
 export const routes: Routes = [

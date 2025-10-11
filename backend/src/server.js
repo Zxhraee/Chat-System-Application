@@ -5,8 +5,11 @@ const { connectDB, ensureCollections } = require('./db/init');
 const { asId, isNonEmptyString } = require('./db/helper');
 const http = require('http');
 const { Server } = require('socket.io');
+const { runSeed } = require('./seed');
 
 const port = Number(process.env.PORT) || 3000;
+
+
 
 async function start() {
   try {
@@ -14,40 +17,54 @@ async function start() {
     app.use(cors({ origin: 'http://localhost:4200' }));
     app.use(express.json());
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: 'http://localhost:4200',
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-  },
-});
+    app.use((req, _res, next) => { console.log(`${req.method} ${req.url}`); next(); });
 
-io.on('connection', (socket) => {
-  console.log('🟢 Client connected:', socket.id);
-  socket.on('disconnect', () => console.log('🔴 Client disconnected:', socket.id));
-});
+    const server = http.createServer(app);
+    const io = new Server(server, {
+      cors: {
+        origin: 'http://localhost:4200',
+        methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+      },
+    });
+
+    io.on('connection', (socket) => {
+      console.log('Client connected:', socket.id);
+      socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
+    });
 
 
     const db = await connectDB();
     await ensureCollections(db);
+    await ensurePromoteRequestsArray(db);
+
+    if (process.env.SEED_ON_START === 'true') {
+      await runSeed();
+    }
 
     const users = db.collection('users');
     const groups = db.collection('groups');
     const channels = db.collection('channels');
     const messages = db.collection('messages');
 
+    async function ensurePromoteRequestsArray(db) {
+      const groups = db.collection('groups');
+
+      const r1 = await groups.updateMany(
+        { promoteRequests: { $exists: false } },
+        { $set: { promoteRequests: [] } }
+      );
+
+      const r2 = await groups.updateMany(
+        { promoteRequests: { $exists: true, $not: { $type: 'array' } } },
+        { $set: { promoteRequests: [] } }
+      );
+    }
 
     app.post('/api/auth/login', async (req, res) => {
       try {
         const { username, password } = req.body;
-        if (!isNonEmptyString(username) || !isNonEmptyString(password)) {
-          return res.status(400).json({ error: 'missing_credentials' });
-        }
 
         const user = await users.findOne({ username });
-        if (!user || user.password !== password) {
-          return res.status(401).json({ error: 'invalid_credentials' });
-        }
 
         res.json({
           token: `session_${user._id.toString()}`,
@@ -55,7 +72,7 @@ io.on('connection', (socket) => {
         });
       } catch (e) {
         console.error('Login error:', e);
-        res.status(500).json({ error: 'server_error' });
+        res.status(500).json({ error: 'server error' });
       }
     });
 
@@ -72,7 +89,7 @@ io.on('connection', (socket) => {
       try {
         const { username, email, password = '123', role = 'USER', groups: groupIds = [] } = req.body;
         if (!isNonEmptyString(username) || !isNonEmptyString(email)) {
-          return res.status(400).json({ error: 'username_and_email_required' });
+          return res.status(400).json({ error: 'username and email is required' });
         }
 
         const doc = {
@@ -85,14 +102,30 @@ io.on('connection', (socket) => {
         };
 
         const result = await users.insertOne(doc);
+        const newUserId = result.insertedId;
+
+        const general = await groups.findOne({ name: { $regex: /^general$/i } });
+        if (general) {
+          await groups.updateOne(
+            { _id: general._id },
+            { $addToSet: { memberIds: newUserId } }
+          );
+
+          await users.updateOne(
+            { _id: newUserId },
+            { $addToSet: { groups: general._id } }
+          );
+        }
+
         io.emit('users:update');
-        res.status(201).json({ ...doc, _id: result.insertedId });
+        res.status(201).json({ ...doc, _id: newUserId });
       } catch (e) {
         if (e.code === 11000) return res.status(409).json({ error: 'username_or_email_taken' });
         console.error(e);
         res.status(500).json({ error: 'server_error' });
       }
     });
+
 
     app.patch('/api/users/:id', async (req, res) => {
       const id = asId(req.params.id);
@@ -118,8 +151,98 @@ io.on('connection', (socket) => {
       res.json({ ok: true });
     });
 
+
+    app.get('/api/users/:userId/groups', async (req, res) => {
+      try {
+        const uId = asId(String(req.params.userId || ''));
+        if (!uId) return res.status(400).json({ error: 'invalid_userId' });
+        const uHex = uId.toHexString();
+
+        const uDoc = await users.findOne({ _id: uId }, { projection: { groups: 1 } });
+        const userGroupHex = (uDoc?.groups || [])
+          .map(g => (g?.toHexString ? g.toHexString() : String(g)))
+          .filter(Boolean);
+
+        const list = await groups.aggregate([
+          {
+            $addFields: {
+              _ownerHex: { $toString: "$ownerId" },
+              _createdByHex: { $toString: "$createdBy" },
+              _adminHex: {
+                $map: {
+                  input: { $ifNull: ["$adminIds", []] },
+                  as: "a",
+                  in: { $toString: "$$a" }
+                }
+              },
+              _memberHex: {
+                $map: {
+                  input: { $ifNull: ["$memberIds", []] },
+                  as: "m",
+                  in: { $toString: "$$m" }
+                }
+              },
+              _idHex: { $toString: "$_id" }
+            }
+          },
+          {
+            $match: {
+              $or: [
+                { _ownerHex: uHex },
+                { _createdByHex: uHex },
+                { _adminHex: uHex },
+                { _memberHex: uHex },
+                { _idHex: { $in: userGroupHex } },
+              ]
+            }
+          }
+        ]).toArray();
+
+        const seen = new Set();
+        const deduped = list.filter(g => {
+          const id = g._id?.toHexString?.() ?? String(g._id);
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return true;
+        });
+
+        res.json(deduped);
+      } catch (e) {
+        console.error('GET /api/users/:userId/groups failed', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
     app.get('/api/groups', async (_req, res) => {
-      res.json(await groups.find().toArray());
+      try {
+        const list = await groups.find().toArray();
+        res.json(list);
+      } catch (e) {
+        console.error('GET /api/groups error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+    app.post('/api/admin/fix/supers-in-groups', async (_req, res) => {
+      try {
+        const supers = await users.find({ role: 'SUPER_ADMIN' }, { projection: { _id: 1 } }).toArray();
+        const superHex = supers.map(u => u._id.toHexString());
+
+        const r = await groups.updateMany(
+          {},
+          [
+            { $set: { memberIds: { $setUnion: ["$memberIds", superHex] } } }
+          ]
+        );
+
+        io.emit('groups:update');
+        res.json({ ok: true, matched: r.matchedCount, modified: r.modifiedCount });
+      } catch (e) {
+        console.error('fix supers-in-groups error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
     });
 
     app.post('/api/groups', async (req, res) => {
@@ -130,14 +253,22 @@ io.on('connection', (socket) => {
           return res.status(400).json({ error: 'name_and_ownerId_required' });
         }
 
+        const membersSet = new Set(
+          [owner, ...memberIds.map(asId).filter(Boolean)].map(String)
+        );
+
+
         const doc = {
           name: name.trim(),
           ownerId: owner,
           adminIds: adminIds.map(asId).filter(Boolean),
-          memberIds: memberIds.map(asId).filter(Boolean),
+          memberIds: Array.from(membersSet).map(asId),
+          promoteRequests: [],
           createdAt: new Date(),
         };
         const result = await groups.insertOne(doc);
+        await users.updateOne({ _id: owner }, { $addToSet: { groups: result.insertedId } });
+        io.emit('users:update');
         io.emit('groups:update');
         res.status(201).json({ ...doc, _id: result.insertedId });
       } catch (e) {
@@ -147,72 +278,229 @@ io.on('connection', (socket) => {
       }
     });
 
-   app.patch('/api/groups/:groupId', async (req, res) => {
-  console.log('PATCH /api/groups/:groupId called', req.params, req.body);
+    app.patch('/api/groups/:groupId', async (req, res) => {
+      console.log('PATCH /api/groups/:groupId called', req.params, req.body);
 
-  try {
-    const gId = asId(req.params.groupId);
-    const { name } = req.body;
+      try {
+        const gId = asId(req.params.groupId);
+        const { name } = req.body;
 
-    if (!gId || !isNonEmptyString(name)) {
-      return res.status(400).json({ error: 'invalid_input' });
-    }
+        if (!gId || !isNonEmptyString(name)) {
+          return res.status(400).json({ error: 'invalid_input' });
+        }
 
-    const trimmedName = name.trim();
+        const trimmedName = name.trim();
 
-    const existing = await groups.findOne({ name: trimmedName });
-    if (existing && !existing._id.equals(gId)) {
-      return res.status(409).json({ error: 'group_name_taken' });
-    }
-
-
-    const updateResult = await groups.findOneAndUpdate(
-      { _id: gId },
-      { $set: { name: trimmedName } },
-      { returnDocument: 'after' } 
-    );
+        const existing = await groups.findOne({ name: trimmedName });
+        if (existing && !existing._id.equals(gId)) {
+          return res.status(409).json({ error: 'group_name_taken' });
+        }
 
 
-    if (!updateResult.value) {
-      console.warn(`❌ No group found for id: ${gId}`);
-      return res.status(404).json({ error: 'group_not_found' });
-    }
+        const updateResult = await groups.findOneAndUpdate(
+          { _id: gId },
+          { $set: { name: trimmedName } },
+          { returnDocument: 'after' }
+        );
 
-    console.log(`✏️ Group renamed successfully to: ${updateResult.value.name}`);
-        io.emit('groups:update'); 
+
+        if (!updateResult.value) {
+          console.warn(`No group found for id: ${gId}`);
+          return res.status(404).json({ error: 'group_not_found' });
+        }
+
+        console.log(`Group renamed successfully to: ${updateResult.value.name}`);
+        io.emit('groups:update');
         res.json(updateResult.value);
-  } catch (err) {
-    console.error('Rename group error:', err);
-    return res.status(500).json({ error: 'server_error', detail: err.message });
-  }
-});
+      } catch (err) {
+        console.error('Rename group error:', err);
+        return res.status(500).json({ error: 'server_error', detail: err.message });
+      }
+    });
 
 
     app.delete('/api/groups/:groupId', async (req, res) => {
       const gId = asId(req.params.groupId);
-      if (!gId) return res.status(400).json({ error: 'invalid_groupId' });
+      if (!gId) return res.status(400).json({ error: 'invalid_group_Id' });
       await groups.deleteOne({ _id: gId });
       await channels.deleteMany({ groupId: gId });
       await messages.deleteMany({ groupId: gId });
-      io.emit('groups:update'); 
+      io.emit('groups:update');
+      io.emit('users:update');
       res.json({ ok: true });
     });
-
     app.post('/api/groups/:groupId/members', async (req, res) => {
-      const gId = asId(req.params.groupId);
-      const uId = asId(req.body.userId);
-      if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
-      await groups.updateOne({ _id: gId }, { $addToSet: { memberIds: uId } });
-      res.json({ ok: true });
+      try {
+        const gId = asId(String(req.params.groupId || ''));
+        const uId = asId(String(req.body.userId || ''));
+        if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
+
+        const [user, group] = await Promise.all([
+          users.findOne({ _id: uId }),
+          groups.findOne({ _id: gId }),
+        ]);
+        if (!user) return res.status(404).json({ error: 'user_not_found' });
+        if (!group) return res.status(404).json({ error: 'group_not_found' });
+
+
+        await Promise.all([
+          groups.updateOne({ _id: gId }, { $addToSet: { memberIds: uId } }),
+          users.updateOne({ _id: uId }, { $addToSet: { groups: gId } }),
+          channels.updateMany({ groupId: gId }, { $addToSet: { memberIds: uId } }),
+
+        ]);
+
+        const updated = await groups.findOne({ _id: gId });
+        io.emit('groups:update');
+        io.emit('users:update');
+        io.emit('channels:update');
+        res.json(updated);
+      } catch (e) {
+        console.error('Add member error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+    app.get('/api/groups/:groupId/promotable', async (req, res) => {
+      try {
+        const gId = asId(String(req.params.groupId || ''));
+        if (!gId) return res.status(400).json({ error: 'invalid_groupId' });
+
+        const g = await groups.findOne({ _id: gId }, { projection: { ownerId: 1, adminIds: 1, memberIds: 1 } });
+        if (!g) return res.status(404).json({ error: 'group_not_found' });
+
+        const ownerHex = g.ownerId?.toHexString?.() ?? String(g.ownerId);
+        const adminHex = new Set((g.adminIds || []).map(x => x.toHexString?.() ?? String(x)));
+        const memberIds = (g.memberIds || []).filter(Boolean);
+
+        const members = await users.find(
+          { _id: { $in: memberIds }, role: { $ne: 'SUPER_ADMIN' } },
+          { projection: { _id: 1, username: 1, role: 1, email: 1 } }
+        ).toArray();
+
+        const promotable = members
+          .filter(u => {
+            const uid = u._id.toHexString?.() ?? String(u._id);
+            return uid !== ownerHex && !adminHex.has(uid);
+          })
+          .map(u => ({ _id: u._id, username: u.username, role: u.role, email: u.email }));
+
+        res.json(promotable);
+      } catch (e) {
+        console.error('GET promotable error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+    app.post('/api/admin/fix/owner-membership', async (_req, res) => {
+      try {
+
+        const r1 = await groups.updateMany(
+          {},
+          [
+            {
+              $set: {
+                memberIds: {
+                  $setUnion: [
+                    {
+                      $map: {
+                        input: "$memberIds",
+                        as: "m",
+                        in: { $toString: "$$m" }
+                      }
+                    },
+                    [
+                      { $toString: "$ownerId" },
+                      { $toString: "$createdBy" }
+                    ]
+                  ]
+                }
+              }
+            }
+          ]
+        );
+
+        const all = await groups.find({}, { projection: { _id: 1, ownerId: 1, createdBy: 1 } }).toArray();
+        const ops = all
+          .map(g => {
+            const owner = g.ownerId ?? g.createdBy;
+            if (!owner) return null;
+            return {
+              updateOne: {
+                filter: { _id: owner },
+                update: { $addToSet: { groups: g._id } }
+              }
+            };
+          })
+          .filter(Boolean);
+
+        if (ops.length) await users.bulkWrite(ops);
+
+        io.emit('groups:update');
+        io.emit('users:update');
+        res.json({ ok: true, updatedGroups: r1.modifiedCount, ownerLinksAdded: ops.length });
+      } catch (e) {
+        console.error('owner membership fix failed', e);
+        res.status(500).json({ error: 'server_error' });
+      }
     });
 
     app.delete('/api/groups/:groupId/members/:userId', async (req, res) => {
-      const gId = asId(req.params.groupId);
-      const uId = asId(req.params.userId);
-      if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
-      await groups.updateOne({ _id: gId }, { $pull: { memberIds: uId } });
-      res.json({ ok: true });
+      try {
+        const gId = asId(String(req.params.groupId || ''));
+        const uId = asId(String(req.params.userId || ''));
+        if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
+
+        const g = await groups.findOne({ _id: gId });
+        if (!g) return res.status(404).json({ error: 'group_not_found' });
+
+
+        const isGeneral = (g.name || '').toLowerCase() === 'general';
+        if (isGeneral) return res.status(400).json({ error: 'cannot_leave_general' });
+
+        const ownerId = String(g.ownerId || g.createdBy || '');
+        if (String(uId) === ownerId || uId.toHexString?.() === ownerId) {
+          return res.status(400).json({ error: 'cannot_remove_owner' });
+        }
+
+
+        const uHex = uId.toHexString();
+        const gHex = gId.toHexString();
+
+        await Promise.all([
+
+          groups.updateOne(
+            { _id: gId },
+            {
+              $pull: {
+                memberIds: { $in: [uId, uHex] },
+                adminIds: { $in: [uId, uHex] },
+              },
+            }
+          ),
+
+          users.updateOne(
+            { _id: uId },
+            { $pull: { groups: { $in: [gId, gHex] } } }
+          ),
+
+          channels.updateMany(
+            { groupId: { $in: [gId, gHex] } },
+            { $pull: { memberIds: { $in: [uId, uHex] } } }
+          ),
+        ]);
+
+        io.emit('groups:update');
+        io.emit('users:update');
+        io.emit('channels:update');
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('Remove member error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
     });
+
+
 
     app.post('/api/groups/:groupId/admins', async (req, res) => {
       const gId = asId(req.params.groupId);
@@ -222,28 +510,222 @@ io.on('connection', (socket) => {
       res.json({ ok: true });
     });
 
-    app.delete('/api/groups/:groupId/admins/:userId', async (req, res) => {
-      const gId = asId(req.params.groupId);
-      const uId = asId(req.params.userId);
-      if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
-      await groups.updateOne({ _id: gId }, { $pull: { adminIds: uId } });
-      res.json({ ok: true });
-    });
+
 
     app.get('/api/groups/:groupId/channels', async (req, res) => {
-  try {
-    const gId = asId(req.params.groupId);
-    if (!gId) return res.status(400).json({ error: 'invalid_groupId' });
+      try {
+        const gId = asId(req.params.groupId);
+        if (!gId) return res.status(400).json({ error: 'invalid_groupId' });
 
-    const list = await channels.find({ groupId: gId }).toArray();
-    res.json(list);
-  } catch (e) {
-    console.error('Error fetching channels for group:', e);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
+        const list = await channels.find({ groupId: gId }).toArray();
+        res.json(list);
+      } catch (e) {
+        console.error('Error fetching channels for group:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
 
- 
+
+    app.post('/api/groups/:groupId/channels', async (req, res) => {
+      try {
+        const gId = asId(req.params.groupId);
+        const { name, isGlobal = false } = req.body || {};
+        if (!gId) return res.status(400).json({ error: 'invalid_groupId' });
+        if (!isNonEmptyString(name)) return res.status(400).json({ error: 'name_required' });
+
+        const grp = await groups.findOne({ _id: gId });
+        if (!grp) return res.status(404).json({ error: 'group_not_found' });
+
+
+        const exists = await channels.findOne({ groupId: gId, name: name.trim() });
+        if (exists) return res.status(409).json({ error: 'channel_exists_in_group' });
+
+        const doc = {
+          groupId: gId,
+          name: name.trim(),
+          isGlobal: !!isGlobal,
+          createdAt: new Date(),
+        };
+
+        const { insertedId } = await channels.insertOne(doc);
+        io.emit('channels:update');
+        res.status(201).json({ ...doc, _id: insertedId });
+      } catch (e) {
+        console.error('Create channel (group) error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+    app.post('/api/groups/:groupId/promotion-requests', async (req, res) => {
+      try {
+        const gId = asId(req.params.groupId);
+        const targetUserId = asId(req.body.userId);
+
+        const requestedBy = asId(req.body.requestedBy);
+
+        if (!gId || !targetUserId || !requestedBy) {
+          return res.status(400).json({ error: 'invalid_ids' });
+        }
+
+        const g = await groups.findOne(
+          { _id: gId },
+          { projection: { ownerId: 1, adminIds: 1, memberIds: 1, promoteRequests: 1 } }
+        );
+        if (!g) return res.status(404).json({ error: 'group_not_found' });
+
+
+        const requester = await users.findOne({ _id: requestedBy }, { projection: { role: 1 } });
+        const requesterIsAdmin =
+          requester?.role === 'SUPER_ADMIN' ||
+          String(g.ownerId || '') === String(requestedBy) ||
+          (g.adminIds || []).some(x => String(x) === String(requestedBy));
+        if (!requesterIsAdmin) return res.status(403).json({ error: 'requester_not_admin' });
+
+        const isMember = (g.memberIds || []).some(x => String(x) === String(targetUserId));
+        const isAdmin = (g.adminIds || []).some(x => String(x) === String(targetUserId));
+        if (!isMember) return res.status(403).json({ error: 'not_a_member' });
+        if (isAdmin) return res.status(409).json({ error: 'already_admin' });
+
+
+        if (!Array.isArray(g.promoteRequests)) {
+          await groups.updateOne({ _id: gId }, { $set: { promoteRequests: [] } });
+        }
+
+        await groups.updateOne(
+          { _id: gId },
+          { $addToSet: { promoteRequests: targetUserId } }
+        );
+
+        io.emit('groups:update');
+        res.json({ ok: true, message: 'Promotion request submitted' });
+      } catch (e) {
+        console.error('request group promotion error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+
+    app.get('/api/groups/:groupId/promotion-requests', async (req, res) => {
+      try {
+        const gId = asId(req.params.groupId);
+        if (!gId) return res.status(400).json({ error: 'invalid_groupId' });
+
+        const g = await groups.findOne(
+          { _id: gId },
+          { projection: { promoteRequests: 1 } }
+        );
+        if (!g) return res.status(404).json({ error: 'group_not_found' });
+
+        const list = Array.isArray(g.promoteRequests) ? g.promoteRequests : [];
+        const requests = list.map(v => (v?.toHexString ? v.toHexString() : String(v)));
+        res.json({ requests });
+      } catch (e) {
+        console.error('list group promotion requests error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+    app.post('/api/groups/:groupId/promotion-requests/:userId/approve', async (req, res) => {
+      try {
+        const gId = asId(req.params.groupId);
+        const uId = asId(req.params.userId);
+        if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
+
+
+        await groups.updateOne(
+          { _id: gId },
+          {
+            $pull: { promoteRequests: uId },
+            $addToSet: { adminIds: uId, memberIds: uId },
+          }
+        );
+        await users.updateOne({ _id: uId }, { $set: { role: 'GROUP_ADMIN', promotionRequested: false } });
+
+        io.emit('groups:update');
+        io.emit('users:update');
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('approve promotion error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+    app.post('/api/groups/:groupId/promotion-requests/:userId/reject', async (req, res) => {
+      try {
+        const gId = asId(req.params.groupId);
+        const uId = asId(req.params.userId);
+        if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
+
+        await groups.updateOne({ _id: gId }, { $pull: { promoteRequests: uId } });
+        await users.updateOne({ _id: uId }, { $set: { promotionRequested: false } });
+
+        io.emit('groups:update');
+        io.emit('users:update');
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('reject promotion error:', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+
+    app.post('/api/users/:userId/request-promotion', async (req, res) => {
+      try {
+        const uId = asId(req.params.userId);
+        if (!uId) return res.status(400).json({ error: 'invalid_userId' });
+
+        const r = await users.updateOne({ _id: uId }, { $set: { promotionRequested: true } });
+        if (r.matchedCount === 0) return res.status(404).json({ error: 'user_not_found' });
+
+        io.emit('users:update');
+        res.json({ ok: true, message: 'Promotion request submitted' });
+      } catch (err) {
+        console.error('Request promotion error:', err);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+    app.post('/api/users/:userId/promote', async (req, res) => {
+      try {
+        const uId = asId(req.params.userId);
+        if (!uId) return res.status(400).json({ error: 'invalid_userId' });
+
+        const role = req.body?.role === 'SUPER_ADMIN' ? 'SUPER_ADMIN' : 'GROUP_ADMIN';
+        const r = await users.updateOne({ _id: uId }, { $set: { role, promotionRequested: false } });
+        if (r.matchedCount === 0) return res.status(404).json({ error: 'user_not_found' });
+
+        io.emit('users:update');
+        res.json({ ok: true, message: `User promoted to ${role}` });
+      } catch (err) {
+        console.error('Promote user error:', err);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
+
+
+    app.post('/api/users/:userId/super', async (req, res) => {
+      try {
+        const uId = asId(req.params.userId);
+        if (!uId) return res.status(400).json({ error: 'invalid_userId' });
+
+        const user = await users.findOne({ _id: uId });
+        if (!user) return res.status(404).json({ error: 'user_not_found' });
+
+        await users.updateOne({ _id: uId }, { $set: { role: 'SUPER_ADMIN' } });
+        io.emit('users:update');
+        res.json({ ok: true, message: 'User upgraded to SUPER_ADMIN' });
+      } catch (err) {
+        console.error('Super promotion error:', err);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
+
     app.get('/api/channels', async (_req, res) => {
       res.json(await channels.find().toArray());
     });
@@ -262,7 +744,7 @@ io.on('connection', (socket) => {
           createdAt: new Date(),
         };
         const result = await channels.insertOne(doc);
-        io.emit('channels:update'); 
+        io.emit('channels:update');
         res.status(201).json({ ...doc, _id: result.insertedId });
       } catch (e) {
         if (e.code === 11000) return res.status(409).json({ error: 'channel_exists_in_group' });
@@ -280,7 +762,7 @@ io.on('connection', (socket) => {
       res.json({ ok: true });
     });
 
- 
+
     app.get('/api/channels/:channelId/messages', async (req, res) => {
       const channelId = asId(req.params.channelId);
       if (!channelId) return res.status(400).json({ error: 'invalid_channelId' });
@@ -301,9 +783,6 @@ io.on('connection', (socket) => {
         const username = (req.body.username || '').trim();
         const body = (req.body.text || req.body.body || '').trim();
 
-        if (!channelId || !senderId || !isNonEmptyString(body))
-          return res.status(400).json({ error: 'channelId_senderId_body_required' });
-
         const doc = {
           channelId,
           senderId,
@@ -318,14 +797,56 @@ io.on('connection', (socket) => {
         res.status(201).json({ ...doc, _id: result.insertedId });
       } catch (e) {
         console.error(e);
+        res.status(500).json({ error: 'server error' });
+      }
+    });
+
+
+    app.post('/api/channels/:channelId/bans', async (req, res) => {
+      try {
+        const cId = asId(String(req.params.channelId || ''));
+        const uId = asId(String(req.body.userId || ''));
+        const reason = (req.body.reason || 'No reason provided').trim();
+        const bannedBy = asId(String(req.body.bannedBy || '000000000000000000000000'));
+
+
+        if (!cId || !uId) return res.status(400).json({ error: 'missing_fields' });
+
+        const chan = await channels.findOne({ _id: cId });
+        if (!chan) return res.status(404).json({ error: 'channel_not_found' });
+
+
+        const bans = db.collection('bans');
+
+
+        await bans.insertOne({
+          channelId: cId,
+          userId: uId,
+          reason,
+          bannedBy,
+          createdAt: new Date(),
+        });
+
+
+        const uHex = uId.toHexString();
+        await channels.updateOne(
+          { _id: cId },
+          { $pull: { memberIds: { $in: [uId, uHex] } } }
+        );
+
+        io.emit('channels:update');
+        return res.json({ ok: true });
+      } catch (err) {
+        console.error('POST /api/channels/:channelId/bans failed', err);
         res.status(500).json({ error: 'server_error' });
       }
     });
 
 
-  server.listen(port, () => {
-  console.log(`✅ Chat backend (Socket.IO) running on http://localhost:${port}`);
-});
+
+    server.listen(port, () => {
+      console.log(`Socket.IO running on http://localhost:${port}`);
+    });
 
   } catch (err) {
     console.error('Startup failed:', err);

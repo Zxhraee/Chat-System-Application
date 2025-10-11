@@ -33,9 +33,13 @@ export class AppComponent {
     return !!user && (user.role === 'GROUP_ADMIN' || user.role === 'SUPER_ADMIN');
   }
 
-  //Logout 
-  logout(): void {
-    this.auth.logout();
-    this.router.navigate(['/login']);
-  }
+logout(): void {
+  localStorage.removeItem('key_session');
+  localStorage.removeItem('user');
+  localStorage.removeItem('jwt');
+  localStorage.removeItem('current_user_cache');
+
+  this.auth.logout();
+  this.router.navigate(['/login']);
+}
 }

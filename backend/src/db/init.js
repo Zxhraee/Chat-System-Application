@@ -12,7 +12,7 @@ async function connectDB() {
   }
   _client = new MongoClient(uri, { ignoreUndefined: true });
   await _client.connect();
-  console.log('Connected to MongoDB');
+  console.log('✅ Connected to MongoDB:', uri, 'db=', dbName);
   return _client.db(dbName);
 }
 
@@ -27,86 +27,48 @@ async function ensureIndex(coll, keys, options = {}) {
   if (byKey && (!!byKey.unique) === !!options.unique) return;
 
   if (byKey) {
-    await coll.dropIndex(byKey.name).catch(() => {});
+    await coll.dropIndex(byKey.name).catch(() => { });
   }
-
   if (options.name) {
-    const nameClash = indexes.find(ix => ix.name === options.name && !sameKey(ix.key, keys));
-    if (nameClash) await coll.dropIndex(nameClash.name).catch(() => {});
+    const clash = indexes.find(ix => ix.name === options.name && !sameKey(ix.key, keys));
+    if (clash) await coll.dropIndex(clash.name).catch(() => { });
   }
-
   await coll.createIndex(keys, options);
 }
 
 async function ensureCollections(db) {
-  const existingNames = new Set((await db.listCollections().toArray()).map(c => c.name));
+  const existing = new Set((await db.listCollections().toArray()).map(c => c.name));
 
-  async function withSchema(name, validator) {
-    if (!existingNames.has(name)) {
-      await db.createCollection(name, { validator: { $jsonSchema: validator } });
-    } else {
-      await db.command({ collMod: name, validator: { $jsonSchema: validator } }).catch(() => {});
+  if (!existing.has('users')) await db.createCollection('users');
+  if (!existing.has('groups')) await db.createCollection('groups');
+  if (!existing.has('channels')) await db.createCollection('channels');
+  if (!existing.has('messages')) await db.createCollection('messages');
+
+  const clear = async (name) => {
+    try {
+      await db.command({
+        collMod: name,
+        validator: {},
+        validationLevel: 'off',
+        validationAction: 'warn'
+      });
+    } catch (e) {
     }
-    return db.collection(name);
-  }
+  };
+  await Promise.all(['users', 'groups', 'channels', 'messages'].map(clear));
 
-  const users = await withSchema('users', {
-    bsonType: 'object',
-    required: ['username', 'email', 'password', 'role', 'createdAt'],
-    properties: {
-      username: { bsonType: 'string' },
-      email: { bsonType: 'string' },
-      password: { bsonType: 'string' },
-      role: { enum: ['SUPER_ADMIN', 'GROUP_ADMIN', 'USER'] },
-      groups: { bsonType: ['array'], items: { bsonType: 'objectId' } },
-      createdAt: { bsonType: 'string' }
-    },
-    additionalProperties: true
-  });
+  const users = db.collection('users');
+  const groups = db.collection('groups');
+  const channels = db.collection('channels');
+  const messages = db.collection('messages');
 
-  const groups = await withSchema('groups', {
-    bsonType: 'object',
-    required: ['name', 'ownerId', 'adminIds', 'memberIds', 'createdAt'],
-    properties: {
-      name: { bsonType: 'string' },
-      ownerId: { bsonType: 'objectId' },
-      adminIds: { bsonType: 'array', items: { bsonType: 'objectId' } },
-      memberIds: { bsonType: 'array', items: { bsonType: 'objectId' } },
-      createdAt: { bsonType: 'string' }
-    },
-    additionalProperties: true
-  });
 
-  const channels = await withSchema('channels', {
-    bsonType: 'object',
-    required: ['groupId', 'name', 'isGlobal', 'createdAt'],
-    properties: {
-      groupId: { bsonType: 'objectId' },
-      name: { bsonType: 'string' },
-      isGlobal: { bsonType: 'bool' },
-      createdAt: { bsonType: 'string' }
-    },
-    additionalProperties: true
-  });
-
-  const messages = await withSchema('messages', {
-    bsonType: 'object',
-    required: ['channelId', 'senderId', 'content', 'createdAt'],
-    properties: {
-      channelId: { bsonType: 'objectId' },
-      senderId: { bsonType: 'objectId' },
-      content: { bsonType: 'string' },
-      createdAt: { bsonType: 'string' }
-    },
-    additionalProperties: true
-  });
-
-  await ensureIndex(users,    { username: 1 },                 { unique: true, name: 'users_username_unique' });
-  await ensureIndex(users,    { email: 1 },                    { unique: true, name: 'users_email_unique' });
-  await ensureIndex(groups,   { name: 1 },                     { unique: true, name: 'groups_name_unique' });
-  await ensureIndex(channels, { groupId: 1, name: 1 },         { unique: true, name: 'channels_group_name_unique' });
-  await ensureIndex(messages, { channelId: 1, createdAt: 1 },  { name: 'messages_channel_createdAt' });
-  await ensureIndex(messages, { senderId: 1 },                 { name: 'messages_sender' });
+  await ensureIndex(users, { username: 1 }, { unique: true, name: 'users_username_unique' });
+  await ensureIndex(users, { email: 1 }, { unique: true, name: 'users_email_unique' });
+  await ensureIndex(groups, { name: 1 }, { unique: true, name: 'groups_name_unique' });
+  await ensureIndex(channels, { groupId: 1, name: 1 }, { unique: true, name: 'channels_group_name_unique' });
+  await ensureIndex(messages, { channelId: 1, createdAt: 1 }, { name: 'messages_channel_createdAt' });
+  await ensureIndex(messages, { senderId: 1 }, { name: 'messages_sender' });
 }
 
 module.exports = {

@@ -1,7 +1,12 @@
 export interface Group {
   id: string;
   name: string;
-  adminIds: string[];
-  createdBy: string;  
-  channelId: string[]; 
+
+  ownerId: string;    
+  adminIds: string[];     
+  memberIds: string[]; 
+  createdAt?: string;
+
+  createdBy?: string;
+  channelId?: string;   
 }

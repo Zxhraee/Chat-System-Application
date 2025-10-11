@@ -1,4 +1,4 @@
-export interface ChatMessage {
+export interface Message {
     id: string;
     channelId: string;   
     userId: string;

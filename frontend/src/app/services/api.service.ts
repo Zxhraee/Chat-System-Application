@@ -4,7 +4,7 @@ import { Observable, map } from 'rxjs';
 import { User } from '../models/user';
 import { Group } from '../models/group';
 import { Channel } from '../models/channel';
-import { ChatMessage } from '../models/message';
+import { Message } from '../models/message';
 import {
   SUser, SGroup, SChannel, SMessage,
   mapUser, mapGroup, mapChannel, mapMessage
@@ -48,14 +48,14 @@ export class ApiService {
       .pipe(map(mapChannel));
   }
 
-  getMessagesForChannel(channelId: string, limit = 50, beforeISO?: string): Observable<ChatMessage[]> {
+  getMessagesForChannel(channelId: string, limit = 50, beforeISO?: string): Observable<Message[]> {
     let params = new HttpParams().set('limit', String(limit));
     if (beforeISO) params = params.set('before', beforeISO);
     return this.http.get<SMessage[]>(`${this.base}/messages/${channelId}`, { params })
       .pipe(map(arr => arr.map(mapMessage)));
   }
 
-  sendMessage(channelId: string, userId: string, username: string, text: string): Observable<ChatMessage> {
+  sendMessage(channelId: string, userId: string, username: string, text: string): Observable<Message> {
     return this.http.post<SMessage>(`${this.base}/channels/${channelId}/messages`, {
       userId, username, text
     }).pipe(map(mapMessage));

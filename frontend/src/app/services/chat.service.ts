@@ -1,94 +1,68 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
-import { StorageService } from './storage.service';
-import { AuthService } from './auth.service';
-import { ChatMessage } from '../models/message';
 import { HttpClient } from '@angular/common/http';
+import { BehaviorSubject, Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
+import { Message } from '../models/message';
 
-
-interface SMessage {
-  _id: string;
-  channelId: string;
-  userId: string;
-  username: string;
-  text: string;
-  timestamp: number;
-}
-
-@Injectable({ providedIn: 'root' })
+@Injectable({
+  providedIn: 'root',
+})
 export class ChatService {
-  private streams = new Map<string, BehaviorSubject<ChatMessage[]>>();
-  private base = 'http://localhost:3000/api';
- constructor(
-    private store: StorageService,
-    private auth: AuthService,
-    private http: HttpClient
-  ) {}
+  private readonly apiUrl = '/api/chat';
+  private messagesCache = new Map<string, BehaviorSubject<Message[]>>();
 
-  private mapMsg(m: SMessage): ChatMessage {
-    return {
-      id: m._id,
-      channelId: m.channelId,
-      userId: m.userId,
-      username: m.username,
-      text: m.text,
-      timestamp: m.timestamp,
-    };
-  }
- 
-   private ensureStream(channelId: string): BehaviorSubject<ChatMessage[]> {
-    let s = this.streams.get(channelId);
-    if (!s) {
-      s = new BehaviorSubject<ChatMessage[]>([]);
-      this.streams.set(channelId, s);
-      // initial fetch
-      this.http.get<SMessage[]>(`${this.base}/channels/${channelId}/messages`)
-        .subscribe(list => {
-          const mapped = (list || []).map(m => this.mapMsg(m));
-          s!.next(mapped);
-        });
+  constructor(private http: HttpClient) {}
+
+
+  messages$(channelId: string): Observable<Message[]> {
+    if (!this.messagesCache.has(channelId)) {
+      const subject = new BehaviorSubject<Message[]>([]);
+      this.messagesCache.set(channelId, subject);
+      this.loadMessages(channelId);
     }
-    return s;
+    return this.messagesCache.get(channelId)!.asObservable();
   }
 
-  //Return Message Stream for Channel
-   messages$(channelId: string): Observable<ChatMessage[]> {
-    return this.ensureStream(channelId).asObservable();
-  }
-
-  //Refresh Stream
-  private refresh(channelId: string): void {
-    const s = this.streams.get(channelId);
-    if (!s) return;
-    this.http.get<SMessage[]>(`${this.base}/channels/${channelId}/messages`)
-      .subscribe(list => {
-        const mapped = (list || []).map(m => this.mapMsg(m));
-        s.next(mapped);
-      });
-  }
-
-  //Send Message
-   send(channelId: string, text: string): Observable<ChatMessage | null> {
-    const me = this.auth.currentUser();
-    const body = {
-      userId: me?.id || '',
-      username: me?.username || '',
-      text: text
-    };
-
-    return new Observable<ChatMessage | null>(subscriber => {
-      this.http.post<SMessage>(`${this.base}/channels/${channelId}/messages`, body)
-        .subscribe({
-          next: (server) => {
-            const msg = this.mapMsg(server);
-            const s = this.ensureStream(channelId);
-            const current = s.getValue();
-            s.next([...current, msg]);
-            subscriber.next(msg);
-            subscriber.complete();
-          },
-          error: (err) => subscriber.error(err),
-        });
+  private loadMessages(channelId: string): void {
+    this.http.get<Message[]>(`${this.apiUrl}/${channelId}/messages`).subscribe({
+      next: (msgs) => {
+        const subject = this.messagesCache.get(channelId);
+        if (subject) subject.next(msgs || []);
+      },
+      error: (err) => console.error(`Failed to load messages for ${channelId}`, err),
     });
+  }
+
+ 
+  sendMessage(channelId: string, senderId: string, content: string): Observable<Message> {
+    const payload = { channelId, senderId, content };
+    return this.http.post<Message>(`${this.apiUrl}/${channelId}/messages`, payload).pipe(
+      map((msg) => {
+        const subject = this.messagesCache.get(channelId);
+        if (subject) {
+          const current = subject.getValue();
+          subject.next([...current, msg]);
+        }
+        return msg;
+      })
+    );
+  }
+
+ 
+  deleteMessage(channelId: string, messageId: string): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${channelId}/messages/${messageId}`).pipe(
+      map(() => {
+        const subject = this.messagesCache.get(channelId);
+        if (subject) {
+          const updated = subject.getValue().filter((m) => m.id !== messageId);
+          subject.next(updated);
+        }
+      })
+    );
+  }
+
+
+  refresh(channelId: string): void {
+    this.loadMessages(channelId);
   }
 }

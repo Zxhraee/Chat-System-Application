@@ -19,7 +19,6 @@ export class LoginComponent {
 
   constructor(private auth: AuthService, private router: Router) {}
 
-  //Submit User Credentials
  submit(){
   this.error = '';
   this.auth.login(this.username, this.password).subscribe({

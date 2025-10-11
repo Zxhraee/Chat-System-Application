@@ -1,106 +1,84 @@
 import { Injectable, OnDestroy } from '@angular/core';
-import { BehaviorSubject, Observable, Subscription } from 'rxjs';
+import { BehaviorSubject, Observable, of } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
-import { StorageService } from './storage.service';
+import { catchError, map } from 'rxjs/operators';
 import { User } from '../models/user';
 
 type Role = 'SUPER_ADMIN' | 'GROUP_ADMIN' | 'USER';
 
 @Injectable({ providedIn: 'root' })
 export class AuthService implements OnDestroy {
-  private currentUserSubject = new BehaviorSubject<User | null>(null);
-  readonly currentUser$: Observable<User | null> = this.currentUserSubject.asObservable();
-
-  private subs: Subscription[] = [];
-  private usersCache: User[] = [];
-  private session: { userId: string } | null = null;
-
   private base = 'http://localhost:3000/api';
 
-  constructor(private http: HttpClient, private store: StorageService) {
-    this.subs.push(
-      this.store.getUsers().subscribe(users => {
-        this.usersCache = users || [];
-        this.recomputeCurrentUser();
-      }),
-      this.store.getSession().subscribe(sess => {
-        this.session = sess;
-        this.recomputeCurrentUser();
-      }),
-    );
+    private currentUserSubject = new BehaviorSubject<User | null>(null);
+  readonly currentUser$: Observable<User | null> = this.currentUserSubject.asObservable();
+
+constructor(private http: HttpClient) {
+  const cached = localStorage.getItem('user');
+  if (cached) {
+    const u = JSON.parse(cached) as User;
+    this.currentUserSubject.next(u);
   }
+}
+
+
 
   login(username: string, password: string): Observable<User | null> {
-    return new Observable<User | null>((observer) => {
-      this.http.post<{ token: string; user: any }>(`${this.base}/auth/login`, { username, password })
-        .subscribe({
-          next: (res) => {
-            try {
-              localStorage.setItem('jwt', res.token);
-              this.store.setSession({ userId: res.user._id }).subscribe(() => {});
+    return this.http.post<any>(`${this.base}/auth/login`, { username, password }).pipe(
+      map((res) => {
+        const userPayload = res?.user ?? res;
+        const token = res?.token ?? null;
 
-              const user: User = {
-                id: res.user._id,
-                username: res.user.username,
-                email: res.user.email,
-                password: '',             
-                role: res.user.role,
-                groups: res.user.groups || []
-              };
+        if (!userPayload?._id) return null;
 
-              localStorage.setItem('current_user_cache', JSON.stringify(user));
+        if (token) localStorage.setItem('jwt', token);
+        else localStorage.removeItem('jwt');
 
-              this.currentUserSubject.next(user);
+        const user: User = {
+          id: userPayload._id,
+          username: userPayload.username,
+          email: userPayload.email,
+          password: '', 
+          role: userPayload.role,
+          groups: userPayload.groups || [],
+        };
 
-              observer.next(user);
-              observer.complete();
-            } catch (e) {
-              observer.next(null);
-              observer.complete();
-            }
-          },
-          error: () => {
-            observer.next(null);
-            observer.complete();
-          }
-        });
-    });
+        localStorage.setItem('user', JSON.stringify(user));
+        this.currentUserSubject.next(user);
+        return user;
+      }),
+      catchError(() => of(null))
+    );
   }
 
   logout(): void {
     localStorage.removeItem('jwt');
-    localStorage.removeItem('current_user_cache');
-    this.store.setSession(null).subscribe(() => {});
+    localStorage.removeItem('user');
     this.currentUserSubject.next(null);
-  }
-
-  currentUser(): User | null {
-    const s = JSON.parse(localStorage.getItem('key_session') || 'null');
-    const u = JSON.parse(localStorage.getItem('current_user_cache') || 'null');
-    return s?.userId && u?.id === s.userId ? u : null;
   }
 
   isLoggedIn(): boolean {
     return !!this.currentUserSubject.getValue();
   }
 
+  currentUser(): User | null {
+    const raw = localStorage.getItem('user');
+    return raw ? (JSON.parse(raw) as User) : null;
+  }
+
+  currentUserId(): string | null {
+    return this.currentUserSubject.getValue()?.id ?? null;
+  }
+
   hasRole(role: Role): boolean {
     const u = this.currentUserSubject.getValue();
     return !!u && u.role === role;
-    }
+  }
 
   hasAnyRole(...roles: Role[]): boolean {
     const u = this.currentUserSubject.getValue();
     return !!u && roles.includes(u.role as Role);
   }
 
-  private recomputeCurrentUser(): void {
-    const id = this.session?.userId;
-    const me = id ? (this.usersCache.find(u => u.id === id) ?? null) : null;
-    this.currentUserSubject.next(me);
-  }
-
-  ngOnDestroy(): void {
-    this.subs.forEach(s => s.unsubscribe());
-  }
+  ngOnDestroy(): void {}
 }

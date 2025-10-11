@@ -1,4 +1,4 @@
-import { Component, OnDestroy } from '@angular/core';
+import { Component, OnDestroy, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { Subscription } from 'rxjs';
@@ -13,7 +13,7 @@ import { User } from '../../models/user';
   templateUrl: './users.component.html',
   styleUrls: ['./users.component.scss']
 })
-export class UsersComponent implements OnDestroy {
+export class UsersComponent implements OnDestroy, OnInit {
   current: User | null = null;
   users: User[] = [];
 
@@ -26,7 +26,18 @@ export class UsersComponent implements OnDestroy {
     private router: Router
   ) {
     this.subCurrent = this.storage.getCurrentUser().subscribe(u => (this.current = u));
-    this.subUsers   = this.storage.getUsers().subscribe(list => (this.users = list));
+    this.subUsers = this.storage.getUsers().subscribe(list => (this.users = list));
+  }
+
+  ngOnInit(): void {
+    this.current = this.auth.currentUser() || this.current;
+
+    if (!this.current) {
+      const raw = localStorage.getItem('auth_user');
+      if (raw) {
+        try { this.current = JSON.parse(raw); } catch { }
+      }
+    }
   }
 
   deleteMe(u: User | null): void {
