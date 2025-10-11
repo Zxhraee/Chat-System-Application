@@ -5,5 +5,6 @@ export interface User {
     password: string;
     role: 'SUPER_ADMIN' | 'GROUP_ADMIN' | 'USER'; 
     groups: string[];
+    avatarUrl?: string;
   }
   

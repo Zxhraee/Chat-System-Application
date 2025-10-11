@@ -56,6 +56,18 @@ export class UsersComponent implements OnDestroy, OnInit {
     });
   }
 
+  onProfileChange(event: Event, user: User) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+
+  this.storage.uploadAvatar(user.id, file).subscribe({
+    next: ({ avatarUrl }: { avatarUrl: string }) => {
+      user.avatarUrl = avatarUrl || user.avatarUrl;
+    },
+    error: (err: any) => console.error('Avatar upload failed', err),
+  });
+}
+
   ngOnDestroy() {
     this.subCurrent?.unsubscribe();
     this.subUsers?.unsubscribe();

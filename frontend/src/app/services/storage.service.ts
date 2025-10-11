@@ -1,11 +1,13 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
 import { BehaviorSubject, Observable, of, fromEvent } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
 import { User } from '../models/user';
 import { Group } from '../models/group';
 import { Channel } from '../models/channel';
 import { Message } from '../models/message';
+import { AuthService } from './auth.service'; 
+import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
+
 
 const sid = (x: any): string =>
   typeof x === 'string' ? x : x?.$oid ?? x?.toString?.() ?? '';
@@ -18,6 +20,7 @@ type SUser = {
   role: 'SUPER_ADMIN' | 'GROUP_ADMIN' | 'USER';
   groups?: string[];
   createdAt?: string;
+  avatarUrl?: string;
 };
 
 type SGroup = {
@@ -45,6 +48,8 @@ type SMessage = {
   body: string;
   meta?: any;
   createdAt: string;
+  avatarUrl?: string;
+  imageUrl?: string;
 };
 
 const toUser = (s: SUser): User => ({
@@ -54,6 +59,7 @@ const toUser = (s: SUser): User => ({
   password: s.password ?? '',
   role: s.role,
   groups: (s.groups || []).map(sid),
+  avatarUrl: s.avatarUrl,
 });
 
 const toGroup = (s: any): Group => ({
@@ -81,6 +87,8 @@ const toMsg = (s: SMessage): Message => ({
   username: s.username || sid(s.senderId),
   text: s.body,
   timestamp: new Date(s.createdAt).getTime(),
+  avatarUrl: s.avatarUrl,  
+  imageUrl: (s as any).imageUrl 
 });
 
 
@@ -108,6 +116,7 @@ export class StorageService {
   private usersLoaded = false;
   private groupsLoaded = false;
   private channelsLoaded = false;
+private userGroupsStreams = new Map<string, BehaviorSubject<Group[]>>();
 
 
   Keys = {
@@ -119,7 +128,7 @@ export class StorageService {
 
   private socket: Socket;
 
-  constructor(private http: HttpClient) {
+  constructor(private http: HttpClient, private auth: AuthService) {
 
 
     this.socket = io('http://localhost:3000', {
@@ -146,16 +155,21 @@ export class StorageService {
   }
 
   private refreshUsers(): void {
-    this.http.get<SUser[]>(`${this.base}/users`).subscribe({
-      next: (arr) => {
-        const users = (arr || []).map(toUser);
-        this.usersSubject.next(users);
-        localStorage.setItem('cache_users', JSON.stringify(users));
-        this.usersLoaded = true;
+  this.http.get<SUser[]>(`${this.base}/users`, { observe: 'response' })
+    .subscribe({
+      next: (res: HttpResponse<SUser[]>) => {
+        if (res.status === 200 && res.body) {
+          const users = res.body.map(toUser);
+          this.usersSubject.next(users);
+          localStorage.setItem('cache_users', JSON.stringify(users));
+        }
+        this.usersLoaded = true; 
+        
       },
-      error: () => { this.usersLoaded = true; }
+      error: () => { this.usersLoaded = true; } 
+      
     });
-  }
+}
 
 
 
@@ -202,6 +216,79 @@ export class StorageService {
     });
   }
 
+uploadAvatar(userId: string, file: File) {
+  const toDataUrl = (f: File) =>
+    new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = reject;
+      r.readAsDataURL(f);
+    });
+
+  return new Observable<{ avatarUrl: string }>((observer) => {
+    toDataUrl(file).then((dataUrl) => {
+      this.http.post<{ avatarUrl: string }>(`${this.base}/users/${userId}/avatar-data`, { dataUrl })
+        .subscribe({
+          next: (res) => {
+            const url = res?.avatarUrl || '';
+
+            const updated = this.usersSubject.getValue().map(u =>
+              u.id === userId ? { ...u, avatarUrl: url } : u
+            );
+            this.usersSubject.next(updated);
+            localStorage.setItem('cache_users', JSON.stringify(updated));
+
+            if (this.auth.currentUserId() === userId && url) {
+              this.auth.updateAvatar(url);
+            }
+
+            observer.next({ avatarUrl: url });
+            observer.complete();
+          },
+          error: (e) => observer.error(e),
+        });
+    }).catch((e) => observer.error(e));
+  });
+}
+
+private loadGroupsForUser(userId: string): void {
+  const uid = sid(userId);
+  const cacheKey = `cache_user_groups_${uid}`;
+  const subj = this.userGroupsStreams.get(uid)!; 
+
+  const params = new HttpParams().set('limit', '9999');
+  this.http.get<SGroup[]>(`${this.base}/users/${uid}/groups`, { observe: 'response', params })
+    .subscribe({
+      next: (res) => {
+        if (res.status === 200 && res.body) {
+          const fresh = res.body.map(toGroup);
+          localStorage.setItem(cacheKey, JSON.stringify(fresh));
+          subj.next(fresh);
+        }
+      },
+      error: (e) => {
+        console.error('loadGroupsForUser failed', e);
+      }
+    });
+}
+
+getGroupsForUser(userId: string): Observable<Group[]> {
+  const uid = sid(userId);
+  const cacheKey = `cache_user_groups_${uid}`;
+
+  if (!this.userGroupsStreams.has(uid)) {
+    const seeded =
+      JSON.parse(localStorage.getItem(cacheKey) || 'null') ??
+      this.groupsSubject.getValue().filter(g => g.memberIds.includes(uid));
+
+    this.userGroupsStreams.set(uid, new BehaviorSubject<Group[]>(seeded || []));
+    this.loadGroupsForUser(uid);
+  }
+
+  return this.userGroupsStreams.get(uid)!.asObservable();
+}
+
+
   deleteUser(userId: string): Observable<boolean> {
     return new Observable<boolean>((observer) => {
       this.http.delete(`${this.base}/users/${userId}`).subscribe({
@@ -237,17 +324,21 @@ export class StorageService {
 
 
 
-  private refreshGroups(): void {
-    this.http.get<SGroup[]>(`${this.base}/groups`).subscribe({
-      next: (arr) => {
-        const groups = (arr || []).map(toGroup);
-        this.groupsSubject.next(groups);
-        localStorage.setItem('cache_groups', JSON.stringify(groups));
+private refreshGroups(): void {
+  this.http.get<SGroup[]>(`${this.base}/groups`, { observe: 'response' })
+    .subscribe({
+      next: (res: HttpResponse<SGroup[]>) => {
+        if (res.status === 200 && res.body) {
+          const groups = res.body.map(toGroup);
+          this.groupsSubject.next(groups);
+          localStorage.setItem('cache_groups', JSON.stringify(groups));
+        }
         this.groupsLoaded = true;
       },
       error: () => { this.groupsLoaded = true; }
     });
-  }
+}
+
 
 
   getGroups(): Observable<Group[]> {
@@ -321,39 +412,6 @@ export class StorageService {
     });
   }
 
-
-  getGroupsForUser(userId: string) {
-    const uid = sid(userId);
-    const cacheKey = `cache_user_groups_${uid}`;
-
-    return new Observable<Group[]>((observer) => {
-
-      const cached = JSON.parse(localStorage.getItem(cacheKey) || '[]');
-      if (cached.length) observer.next(cached as Group[]);
-
-
-      const params = new HttpParams().set('t', Date.now().toString());
-      const headers = { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' };
-
-      this.http.get<any[]>(`${this.base}/users/${uid}/groups`, { params, headers })
-        .subscribe({
-          next: (arr) => {
-            const fresh = (arr || []).map(toGroup);
-            localStorage.setItem(cacheKey, JSON.stringify(fresh));
-            observer.next(fresh);
-            observer.complete();
-          },
-          error: (e) => {
-            observer.complete();
-          }
-        });
-    });
-  }
-
-
-
-
-
   addUserToGroup(groupId: string, userId: string): Observable<boolean> {
     return new Observable<boolean>((observer) => {
       this.http.post(`${this.base}/groups/${groupId}/members`, { userId }).subscribe({
@@ -390,17 +448,21 @@ export class StorageService {
     });
   }
 
-  private refreshChannels(): void {
-    this.http.get<SChannel[]>(`${this.base}/channels`).subscribe({
-      next: (arr) => {
-        const chans = (arr || []).map(toChannel);
-        this.channelsSubject.next(chans);
-        localStorage.setItem('cache_channels', JSON.stringify(chans));
+private refreshChannels(): void {
+  this.http.get<SChannel[]>(`${this.base}/channels`, { observe: 'response' })
+    .subscribe({
+      next: (res: HttpResponse<SChannel[]>) => {
+        if (res.status === 200 && res.body) {
+          const chans = res.body.map(toChannel);
+          this.channelsSubject.next(chans);
+          localStorage.setItem('cache_channels', JSON.stringify(chans));
+        }
         this.channelsLoaded = true;
       },
       error: () => { this.channelsLoaded = true; }
     });
-  }
+}
+
   getChannels(): Observable<Channel[]> {
     if (!this.channelsLoaded) this.refreshChannels();
     return this.channelsSubject.asObservable();
@@ -447,7 +509,7 @@ export class StorageService {
           observer.next(existing[0]);
           observer.complete();
         } else {
-          const sub2 = this.addChannel(groupId, 'main', creatorId ? [creatorId] : []).subscribe({
+          const sub2 = this.addChannel(groupId, 'Main', creatorId ? [creatorId] : []).subscribe({
             next: (ch) => {
               observer.next(ch);
               observer.complete();

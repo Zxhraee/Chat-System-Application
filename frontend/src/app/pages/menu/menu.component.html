@@ -1,52 +1,58 @@
 <h1 class="app-title">Chat System</h1>
 
 <section class="chat-shell" id="chat">
-  <header class="chat-header">General /
-  <select [ngModel]="channelId" (ngModelChange)="changeGeneralChannel($event)" class="channel-select">
-    <option *ngFor="let c of channels" [ngValue]="c.id">{{ c.name }}</option>
-  </select>
-  Chat
+  <header class="chat-header">
+    General /
+<select
+  [ngModel]="channelId"
+  (ngModelChange)="setChannel($event)"
+  class="channel-select">
+  <option *ngFor="let c of channels; trackBy: trackById" [value]="c.id">
+    {{ c.name }}
+  </option>
+</select>
+
+    Chat
   </header>
-  
 
   <div class="chat-body">
-    <div *ngIf="messages.length === 0" class="chat-empty">No messages yet.</div>
+    <div *ngIf="viewMessages.length === 0" class="chat-empty">
+      No messages yet.
+    </div>
 
-    <div *ngFor="let m of messages" class="chat-message">
-      <div class="chat-row">
-        <span class="chat-author">{{ m.username }}</span>
-        <span class="chat-text">{{ m.text }}</span>
+    <div *ngFor="let m of viewMessages; trackBy: trackByMessageId">
+      <div class="chat-message">
+        <img class="chat-avatar" [src]="m.avatarUrl || '../assets/default-avatar.png'" alt="Avatar" />
+        <div class="chat-row">
+          <span class="chat-author">{{ m.username }}</span>
+          <span class="chat-text">{{ m.text }}</span>
+          <span class="chat-when">{{ m.timestamp | date:'d MMMM y' }}</span>
+        </div>
       </div>
-
-      <div class="chat-when">{{ m.timestamp | date:'d MMMM y' }}</div>
     </div>
   </div>
 
   <form class="chat-form" (submit)="$event.preventDefault(); send();">
-    <input
-      name="chatInput"
-      [(ngModel)]="input"
-      placeholder="Message…"
-      class="chat-input"
-      autocomplete="off"
-    />
+    <input name="chatInput" [(ngModel)]="input" placeholder="Message…" class="chat-input" autocomplete="off" />
     <button type="submit" class="chat-send">Send</button>
   </form>
 </section>
 
 <h2>My Groups</h2>
 
-<section class="groups">
+<section class="groups" *ngIf="myGroups as myGroups">
   <div *ngIf="myGroups.length === 0" class="groups-empty">
     You don't belong to any groups yet.
   </div>
 
   <ul class="groups-list">
-    <ng-container *ngFor="let g of myGroups">
+    <ng-container *ngFor="let g of myGroups; trackBy: trackById">
       <li *ngIf="!isGeneralGroup(g)" class="group-item">
         <strong class="group-name">{{ g.name }}</strong>
         <div class="group-actions">
-          <button (click)="openGroupDefaultChannel(g)" class="btn-primary">Open group chat</button>
+          <button (click)="openGroupDefaultChannel(g)" class="btn-primary">
+            Open group chat
+          </button>
         </div>
       </li>
     </ng-container>

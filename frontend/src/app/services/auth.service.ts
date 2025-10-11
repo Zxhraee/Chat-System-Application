@@ -10,18 +10,16 @@ type Role = 'SUPER_ADMIN' | 'GROUP_ADMIN' | 'USER';
 export class AuthService implements OnDestroy {
   private base = 'http://localhost:3000/api';
 
-    private currentUserSubject = new BehaviorSubject<User | null>(null);
+  private currentUserSubject = new BehaviorSubject<User | null>(null);
   readonly currentUser$: Observable<User | null> = this.currentUserSubject.asObservable();
 
-constructor(private http: HttpClient) {
-  const cached = localStorage.getItem('user');
-  if (cached) {
-    const u = JSON.parse(cached) as User;
-    this.currentUserSubject.next(u);
+  constructor(private http: HttpClient) {
+    const cached = localStorage.getItem('user');
+    if (cached) {
+      const u = JSON.parse(cached) as User;
+      this.currentUserSubject.next(u);
+    }
   }
-}
-
-
 
   login(username: string, password: string): Observable<User | null> {
     return this.http.post<any>(`${this.base}/auth/login`, { username, password }).pipe(
@@ -38,9 +36,10 @@ constructor(private http: HttpClient) {
           id: userPayload._id,
           username: userPayload.username,
           email: userPayload.email,
-          password: '', 
+          password: '',
           role: userPayload.role,
           groups: userPayload.groups || [],
+          avatarUrl: userPayload.avatarUrl || undefined,
         };
 
         localStorage.setItem('user', JSON.stringify(user));
@@ -80,5 +79,12 @@ constructor(private http: HttpClient) {
     return !!u && roles.includes(u.role as Role);
   }
 
-  ngOnDestroy(): void {}
+  updateAvatar(avatarUrl: string) {
+    const cur = this.currentUserSubject.getValue();
+    if (!cur) return;
+    const updated = { ...cur, avatarUrl };
+    localStorage.setItem('user', JSON.stringify(updated));
+    this.currentUserSubject.next(updated);
+  }
+  ngOnDestroy(): void { }
 }

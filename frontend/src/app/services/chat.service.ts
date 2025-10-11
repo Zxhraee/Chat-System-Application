@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { io, Socket } from 'socket.io-client';
 import { environment } from '../../environments/environment';
@@ -7,87 +7,96 @@ import { Message } from '../models/message';
 
 type SMessage = {
   _id: string;
-  channelId: string;   
-  senderId: string;     
+  channelId: string;
+  senderId: string;
   username?: string;
   body?: string;
   text?: string;
-  createdAt: string;    
+  imageUrl?: string;
+  avatarUrl?: string;
+  createdAt: string;
 };
-
-const adapt = (m: SMessage): Message => ({
-  id: m._id,
-  channelId: String(m.channelId),
-  userId: String(m.senderId),
-  username: m.username || 'User',
-  text: (m.body ?? m.text ?? '').trim(),
-  timestamp: new Date(m.createdAt).getTime(), 
-});
 
 @Injectable({ providedIn: 'root' })
 export class ChatService {
-  private readonly apiBase = environment.apiBase;   
-  private readonly socketBase = environment.socketBase; 
+  private readonly apiBase = environment.apiBase;
+  private readonly socketBase = environment.socketBase;
 
   private socket!: Socket;
-
   private streams = new Map<string, BehaviorSubject<Message[]>>();
   private joined: string | null = null;
+
+  private adapt(m: SMessage): Message {
+    return {
+      id: m._id,
+      channelId: String(m.channelId),
+      userId: String(m.senderId),
+      username: m.username || 'User',
+      text: (m.body ?? m.text ?? '').trim(),
+      timestamp: new Date(m.createdAt).getTime(),
+      avatarUrl: m.avatarUrl,
+      imageUrl: m.imageUrl,
+    };
+  }
 
   constructor(private http: HttpClient) {
     this.socket = io(this.socketBase, { transports: ['websocket'] });
 
     this.socket.on('chat:message', (raw: SMessage) => {
-      const msg = adapt(raw);
+      const msg = this.adapt(raw);                 
       const subj = this.streams.get(msg.channelId);
-      if (!subj) return; 
+      if (!subj) return;
       const cur = subj.getValue();
-      if (cur.some(x => x.id === msg.id)) return; 
+      if (cur.some(x => x.id === msg.id)) return;
       subj.next([...cur, msg]);
     });
-
-    this.socket.on('presence:join', () => {});
-    this.socket.on('presence:leave', () => {});
   }
 
-  messages$(channelId: string): Observable<Message[]> {
-    if (!this.streams.has(channelId)) {
-      this.streams.set(channelId, new BehaviorSubject<Message[]>([]));
-      this.loadHistory(channelId);
-    }
-    return this.streams.get(channelId)!.asObservable();
+ messages$(channelId: string): Observable<Message[]> {
+  const key = String(channelId);               
+  if (!this.streams.has(key)) {
+    this.streams.set(key, new BehaviorSubject<Message[]>([]));
+    this.loadHistory(key);
   }
+  return this.streams.get(key)!.asObservable();
+}
 
-  joinChannel(channelId: string, user?: { id: string; username: string } | null) {
-    if (this.joined && this.joined !== channelId) {
-      this.socket.emit('chat:leave', { channelId: this.joined });
-    }
-    this.joined = channelId;
-    this.socket.emit('chat:join', { channelId, user: user ?? null });
-
-    if (!this.streams.has(channelId)) {
-      this.streams.set(channelId, new BehaviorSubject<Message[]>([]));
-      this.loadHistory(channelId);
-    }
+joinChannel(channelId: string, user?: { id: string; username: string } | null) {
+  const key = String(channelId);
+  if (this.joined && this.joined !== key) {
+    this.socket.emit('chat:leave', { channelId: this.joined });
   }
+  this.joined = key;
+  this.socket.emit('chat:join', { channelId: key, user: user ?? null });
+
+  if (!this.streams.has(key)) {
+    this.streams.set(key, new BehaviorSubject<Message[]>([]));
+    this.loadHistory(key);
+  }
+}
 
   leaveChannel(channelId: string) {
     if (this.joined === channelId) this.joined = null;
     this.socket.emit('chat:leave', { channelId });
   }
 
-  private loadHistory(channelId: string, limit = 50) {
-    const params = new HttpParams().set('limit', String(limit));
-    this.http.get<SMessage[]>(`${this.apiBase}/channels/${channelId}/messages`, { params })
-      .subscribe({
-        next: (rows) => {
-          const subj = this.streams.get(channelId);
+private loadHistory(channelId: string, limit = 50) {
+  const key = String(channelId);
+  const params = new HttpParams().set('limit', String(limit));
+
+  this.http.get<SMessage[]>(`${this.apiBase}/channels/${key}/messages`, { params, observe: 'response' })
+    .subscribe({
+      next: (res: HttpResponse<SMessage[]>) => {
+        if (res.status === 200 && res.body) {
+          const subj = this.streams.get(key);
           if (!subj) return;
-          subj.next((rows || []).map(adapt));
-        },
-        error: (e) => console.error('loadHistory failed', e),
-      });
-  }
+          const adapted = res.body.map(row => this.adapt(row));
+          subj.next(adapted);
+        }
+      },
+      error: (e) => console.error('loadHistory failed', e),
+    });
+}
 
   sendMessage(channelId: string, senderId: string, text: string, username?: string) {
     const payload = { userId: senderId, text, username };

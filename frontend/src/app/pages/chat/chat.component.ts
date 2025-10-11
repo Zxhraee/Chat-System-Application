@@ -21,8 +21,10 @@ import { User } from '../../models/user';
 export class ChatComponent implements OnInit, OnDestroy {
   me: User | null = null;
   input = '';
-
   messages$: Observable<Message[]> = of([]);
+  private rawMessages: Message[] = [];
+  private userMap = new Map<string, User>();
+  viewMessages: Message[] = [];
 
   activeGroup: Group | null = null;
   activeChannelName = '';
@@ -35,16 +37,24 @@ export class ChatComponent implements OnInit, OnDestroy {
   private subGroup?: Subscription;
   private subChans?: Subscription;
   private subMe?: Subscription;
+  private subUsers?: Subscription;
+  private subMsgs?: Subscription;
 
   constructor(
     private route: ActivatedRoute,
     private router: Router,
     private chat: ChatService,
     private store: StorageService
-  ) {}
+  ) { }
 
   ngOnInit(): void {
     this.subMe = this.store.getCurrentUser().subscribe(u => (this.me = u));
+
+    this.subUsers = this.store.getUsers().subscribe(users => {
+      this.userMap = new Map(users.map(u => [u.id, u]));
+      this.recomputeView();
+    });
+
 
     this.subRoute = this.route.paramMap.subscribe(() => {
       const gid = this.route.snapshot.paramMap.get('groupId')!;
@@ -85,6 +95,16 @@ export class ChatComponent implements OnInit, OnDestroy {
     });
   }
 
+  private recomputeView() {
+    this.viewMessages = this.rawMessages.map(m => {
+      const u = this.userMap.get(m.userId);
+      return {
+        ...m,
+        avatarUrl: m.avatarUrl || u?.avatarUrl || ''
+      };
+    });
+  }
+
   private setActiveChannel(id: string) {
     if (!id) return;
 
@@ -99,6 +119,12 @@ export class ChatComponent implements OnInit, OnDestroy {
     const minimalUser = this.me ? { id: this.me.id, username: this.me.username } : null;
     this.chat.joinChannel(id, minimalUser);
     this.messages$ = this.chat.messages$(id);
+
+    this.subMsgs?.unsubscribe();
+    this.subMsgs = this.messages$.subscribe(msgs => {
+      this.rawMessages = msgs || [];
+      this.recomputeView();
+    });
   }
 
   goChannel(id: string) {
@@ -112,7 +138,7 @@ export class ChatComponent implements OnInit, OnDestroy {
     this.chat
       .sendMessage(this.channelId, this.me?.id || '', text, this.me?.username)
       .subscribe({
-        next: () => { this.input = ''; },   
+        next: () => { this.input = ''; },
         error: (e) => console.error('send failed', e),
       });
   }
@@ -123,5 +149,7 @@ export class ChatComponent implements OnInit, OnDestroy {
     this.subGroup?.unsubscribe();
     this.subChans?.unsubscribe();
     this.subMe?.unsubscribe();
+    this.subUsers?.unsubscribe();
+    this.subMsgs?.unsubscribe();
   }
 }

@@ -4,6 +4,21 @@
 
 <ng-container *ngIf="current as u">
   <div class="account-card">
+    <div class="profile-section">
+      <img
+        [src]="u.avatarUrl || '../assets/default-avatar.png'"
+        class="profile-img"
+      />
+      <div class="upload-box">
+        <label for="profileUpload" class="upload-label">Change Picture</label>
+        <input
+          type="file"
+          id="profileUpload"
+          accept="image/*"
+          (change)="onProfileChange($event, u)"
+        />
+      </div>
+    </div>
     <div class="row"><strong>Username:</strong> {{ u.username }}</div>
     <div class="row"><strong>Email:</strong> {{ u.email }}</div>
     <div class="row"><strong>Role:</strong> {{ u.role }}</div>

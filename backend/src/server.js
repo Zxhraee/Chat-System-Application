@@ -15,8 +15,19 @@ async function start() {
   try {
     const app = express();
     app.use(cors({ origin: 'http://localhost:4200' }));
-    app.use(express.json());
 
+    app.use('/api', (req, res, next) => {
+      res.set('Cache-Control', 'no-cache');
+      next();
+    });
+
+    const path = require('path');
+    const fs = require('fs');
+
+    const uploadsDir = path.join(__dirname, 'uploads');
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    app.use('/uploads', express.static(uploadsDir));
+    app.use(express.json({ limit: '6mb' }));
     app.use((req, _res, next) => { console.log(`${req.method} ${req.url}`); next(); });
 
     const server = http.createServer(app);
@@ -30,57 +41,57 @@ async function start() {
     const toHex = (x) => (x?.toHexString?.() ?? String(x || ''));
 
     io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+      console.log('Client connected:', socket.id);
 
-  socket.on('chat:join', ({ channelId, user }) => {
-    try {
-      const room = `channel:${String(channelId)}`;
-      for (const r of socket.rooms) {
-        if (r.startsWith('channel:')) socket.leave(r);
-      }
-      socket.join(room);
-      socket.data.user = user || null;
+      socket.on('chat:join', ({ channelId, user }) => {
+        try {
+          const room = `channel:${String(channelId)}`;
+          for (const r of socket.rooms) {
+            if (r.startsWith('channel:')) socket.leave(r);
+          }
+          socket.join(room);
+          socket.data.user = user || null;
 
-      socket.to(room).emit('presence:join', {
-        channelId,
-        user: user ? { id: user.id, username: user.username } : null,
-        at: new Date().toISOString(),
+          socket.to(room).emit('presence:join', {
+            channelId,
+            user: user ? { id: user.id, username: user.username } : null,
+            at: new Date().toISOString(),
+          });
+
+          socket.emit('chat:joined', { channelId });
+        } catch (e) {
+          console.error('chat:join error', e);
+        }
       });
 
-      socket.emit('chat:joined', { channelId });
-    } catch (e) {
-      console.error('chat:join error', e);
-    }
-  });
-
-  socket.on('chat:leave', ({ channelId }) => {
-    try {
-      const room = `channel:${String(channelId)}`;
-      socket.leave(room);
-      socket.to(room).emit('presence:leave', {
-        channelId,
-        user: socket.data.user ? { id: socket.data.user.id, username: socket.data.user.username } : null,
-        at: new Date().toISOString(),
+      socket.on('chat:leave', ({ channelId }) => {
+        try {
+          const room = `channel:${String(channelId)}`;
+          socket.leave(room);
+          socket.to(room).emit('presence:leave', {
+            channelId,
+            user: socket.data.user ? { id: socket.data.user.id, username: socket.data.user.username } : null,
+            at: new Date().toISOString(),
+          });
+        } catch (e) {
+          console.error('chat:leave error', e);
+        }
       });
-    } catch (e) {
-      console.error('chat:leave error', e);
-    }
-  });
 
-  socket.on('disconnecting', () => {
-    for (const r of socket.rooms) {
-      if (r.startsWith('channel:')) {
-        socket.to(r).emit('presence:leave', {
-          channelId: r.replace('channel:', ''),
-          user: socket.data.user ? { id: socket.data.user.id, username: socket.data.user.username } : null,
-          at: new Date().toISOString(),
-        });
-      }
-    }
-  });
+      socket.on('disconnecting', () => {
+        for (const r of socket.rooms) {
+          if (r.startsWith('channel:')) {
+            socket.to(r).emit('presence:leave', {
+              channelId: r.replace('channel:', ''),
+              user: socket.data.user ? { id: socket.data.user.id, username: socket.data.user.username } : null,
+              at: new Date().toISOString(),
+            });
+          }
+        }
+      });
 
-  socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
-});
+      socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
+    });
 
 
     const db = await connectDB();
@@ -95,6 +106,37 @@ async function start() {
     const groups = db.collection('groups');
     const channels = db.collection('channels');
     const messages = db.collection('messages');
+
+    app.post('/api/users/:id/avatar-data', async (req, res) => {
+      try {
+        const { ObjectId } = require('mongodb');
+        const id = String(req.params.id || '');
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({ error: 'invalid_user_id' });
+        }
+
+        const dataUrl = req.body?.dataUrl;
+        if (typeof dataUrl !== 'string' || !dataUrl.startsWith('data:image/')) {
+          return res.status(400).json({ error: 'invalid_data_url' });
+        }
+        const result = await users.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { avatarUrl: dataUrl } }
+        );
+
+        if (!result.matchedCount) {
+          return res.status(404).json({ error: 'user_not_found' });
+        }
+
+
+        io.emit('users:update');
+        return res.json({ avatarUrl: dataUrl });
+      } catch (err) {
+        console.error('avatar-data error', err);
+        return res.status(500).json({ error: 'server_error' });
+      }
+    });
 
     async function ensurePromoteRequestsArray(db) {
       const groups = db.collection('groups');
@@ -813,48 +855,56 @@ async function start() {
     });
 
 
-app.get('/api/channels/:channelId/messages', async (req, res) => {
-  try {
-    const channelId = asId(req.params.channelId);
-    if (!channelId) return res.status(400).json({ error: 'invalid_channelId' });
+    app.get('/api/channels/:channelId/messages', async (req, res) => {
+      try {
+        const channelId = asId(req.params.channelId);
+        if (!channelId) return res.status(400).json({ error: 'invalid_channelId' });
 
-    const limit = Math.min(Number(req.query.limit) || 50, 200);
-    const before = req.query.before ? new Date(req.query.before) : null;
+        const limit = Math.min(Number(req.query.limit) || 50, 200);
+        const before = req.query.before ? new Date(req.query.before) : null;
 
-    const query = { channelId };
-    if (before && !isNaN(before.getTime())) {
-      query.createdAt = { $lt: before };
-    }
+        const query = { channelId };
+        if (before && !isNaN(before.getTime())) {
+          query.createdAt = { $lt: before };
+        }
 
-    const list = await messages
-      .find(query)
-      .sort({ createdAt: 1 })
-      .limit(limit)
-      .toArray();
+        const list = await messages
+          .find(query)
+          .sort({ createdAt: 1 })
+          .limit(limit)
+          .toArray();
 
-    res.json(list);
-  } catch (e) {
-    console.error('GET messages error', e);
-    res.status(500).json({ error: 'server_error' });
-  }
-});
+        res.json(list);
+      } catch (e) {
+        console.error('GET messages error', e);
+        res.status(500).json({ error: 'server_error' });
+      }
+    });
 
-app.post('/api/channels/:channelId/messages', async (req, res) => {
+    app.post('/api/channels/:channelId/messages', async (req, res) => {
   try {
     const channelId = asId(req.params.channelId);
     const senderId  = asId(req.body.userId);
     const username  = (req.body.username || '').trim();
     const body      = (req.body.text || req.body.body || '').trim();
+    const imageUrl  = (req.body.imageDataUrl || '').trim();
 
-    if (!channelId || !senderId || !body) {
+    if (!channelId || !senderId || (!body && !imageUrl)) {
       return res.status(400).json({ error: 'invalid_payload' });
     }
+
+    const sender = await users.findOne(
+      { _id: senderId },
+      { projection: { username: 1, avatarUrl: 1 } }
+    );
 
     const doc = {
       channelId,
       senderId,
-      username: username || undefined,
-      body,
+      username: username || sender?.username || undefined,
+      avatarUrl: sender?.avatarUrl || undefined,
+      body: body || undefined,
+      imageUrl: imageUrl || undefined,
       createdAt: new Date(),
     };
 
@@ -862,24 +912,26 @@ app.post('/api/channels/:channelId/messages', async (req, res) => {
     const saved  = { ...doc, _id: result.insertedId };
 
     const room = `channel:${toHex(channelId)}`;
+
     io.to(room).emit('chat:message', {
       _id: saved._id,
       channelId: toHex(saved.channelId),
       senderId: toHex(saved.senderId),
       username: saved.username,
+      avatarUrl: saved.avatarUrl,
       body: saved.body,
+      imageUrl: saved.imageUrl,
       createdAt: saved.createdAt,
     });
 
-    io.emit('messages:update', { channelId: toHex(channelId) });
+    io.to(room).emit(`messages:update:${toHex(channelId)}`);
 
-    res.status(201).json(saved);
+    return res.status(201).json(saved);
   } catch (e) {
-    console.error(e);
-    res.status(500).json({ error: 'server error' });
+    console.error('POST /api/channels/:channelId/messages failed', e);
+    return res.status(500).json({ error: 'server_error' });
   }
 });
-
 
     app.post('/api/channels/:channelId/bans', async (req, res) => {
       try {
@@ -920,8 +972,6 @@ app.post('/api/channels/:channelId/messages', async (req, res) => {
         res.status(500).json({ error: 'server_error' });
       }
     });
-
-
 
     server.listen(port, () => {
       console.log(`Socket.IO running on http://localhost:${port}`);

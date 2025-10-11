@@ -21,9 +21,9 @@ const groupsSeed = [
 ];
 
 const channelsSeed = [
-  { id: 'C1', groupId: 'G1', name: 'General', memberId: usersSeed.map(u => u.id) },
-  { id: 'C2', groupId: 'G1', name: 'Main', memberId: usersSeed.map(u => u.id) },
-  { id: 'C3', groupId: 'G1', name: 'Help', memberId: usersSeed.map(u => u.id) },
+  { id: 'C1', groupId: 'G1', name: 'Main', memberId: usersSeed.map(u => u.id) },
+  { id: 'C2', groupId: 'G1', name: 'Help', memberId: usersSeed.map(u => u.id) },
+  { id: 'C3', groupId: 'G1', name: 'Community', memberId: usersSeed.map(u => u.id) },
   { id: 'C4', groupId: 'G2', name: 'Algebra', memberId: ['U1', 'U2', 'U3'] },
   { id: 'C5', groupId: 'G2', name: 'Calculus', memberId: ['U1', 'U2', 'U3'] },
   { id: 'C6', groupId: 'G3', name: 'Biology', memberId: ['U1', 'U4'] },
