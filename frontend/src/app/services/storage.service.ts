@@ -98,6 +98,7 @@ type Bans = BanEntry[];
 type Report = { channelId: string; bannerId: string; bannedId: string; reason: string; ts: number };
 type Reports = Report[];
 
+
 @Injectable({ providedIn: 'root' })
 export class StorageService {
   private base = 'http://localhost:3000/api';
@@ -449,19 +450,20 @@ private refreshGroups(): void {
   }
 
 private refreshChannels(): void {
-  this.http.get<SChannel[]>(`${this.base}/channels`, { observe: 'response' })
-    .subscribe({
-      next: (res: HttpResponse<SChannel[]>) => {
-        if (res.status === 200 && res.body) {
-          const chans = res.body.map(toChannel);
-          this.channelsSubject.next(chans);
-          localStorage.setItem('cache_channels', JSON.stringify(chans));
-        }
-        this.channelsLoaded = true;
-      },
-      error: () => { this.channelsLoaded = true; }
-    });
+  const params = new HttpParams().set('t', Date.now().toString());
+  const headers = { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' };
+
+  this.http.get<SChannel[]>(`${this.base}/channels`, { params, headers }).subscribe({
+    next: (arr) => {
+      const chans = (arr || []).map(toChannel);
+      this.channelsSubject.next(chans);
+      localStorage.setItem('cache_channels', JSON.stringify(chans));
+      this.channelsLoaded = true;
+    },
+    error: () => { this.channelsLoaded = true; }
+  });
 }
+
 
   getChannels(): Observable<Channel[]> {
     if (!this.channelsLoaded) this.refreshChannels();

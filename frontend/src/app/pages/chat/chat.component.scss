@@ -256,3 +256,16 @@ body,
     opacity: 1;
   }
 }
+
+.banned-banner {
+  margin: 10px 20px 20px 0px;
+  padding: 10px 0px;
+  border: 1px solid #d68cb9;
+  border-radius: 10px;
+  background: rgba(214, 140, 185, .08);
+  color: #f5efff;     
+  font-weight: 800;    
+  text-align: center;
+}
+
+.chat-shell .banned-banner { width: 100%; }

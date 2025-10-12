@@ -345,3 +345,110 @@
     .discover-join { font-size: 14px; }
   }
   
+/* === Ban Reports (dark theme to match Groups page) === */
+.section.wide { overflow-x: auto; }
+
+.ban-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: rgba(42, 36, 59, 0.92);      /* same as .group-card/.card */
+  color: #f5efff;                           /* page text on dark */
+  border: 1px solid #d68cb9;                /* accent border */
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 30px rgba(0,0,0,.28);  /* same shadow as .group-card */
+  font-size: 14px;
+  min-width: 720px;                         /* keep columns readable */
+}
+
+.ban-table thead th {
+  text-align: left;
+  padding: 12px 14px;
+  background: #5a466d;                      /* matches .pending-item bg */
+  color: #ffe0f1;                           /* light heading text */
+  font-weight: 700;
+  border-bottom: 1px solid #d68cb9;
+  letter-spacing: .01em;
+}
+
+.ban-table tbody td {
+  padding: 12px 14px;
+  color: #f5efff;
+  border-bottom: 1px solid rgba(168,153,199,.25); /* subtle row divider */
+  vertical-align: top;
+}
+
+/* Zebra + hover with your accent tint */
+.ban-table tbody tr:nth-child(even) {
+  background: rgba(214, 140, 185, .04);
+}
+.ban-table tbody tr:hover {
+  background: rgba(214, 140, 185, .12);
+}
+
+/* Column tweaks */
+.ban-table td:nth-child(1) {               /* When */
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: #bfb2db;                           /* muted time */
+}
+
+.ban-table td:nth-child(5) {               /* Banned by */
+  color: #ffe0f1;
+  font-weight: 600;
+}
+
+.ban-table td:last-child {                  /* Reason */
+  word-break: break-word;
+}
+
+/* Optional chips for IDs inside cells (if you add them later) */
+.ban-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid #d68cb9;
+  border-radius: 999px;
+  background: #2a243b;
+  color: #f5efff;
+  font-size: 12px;
+  line-height: 1.2;
+}
+/* Unban section spacing + colors (matches your theme) */
+.unban-section {
+  margin-top: 20px;               /* extra spacing above */
+  padding-top: 12px;
+  border-top: 1px solid #d68cb9;  /* same divider as admin panel */
+
+  .label,
+  .controls,
+  .pending,
+  .banned-name { color: #f5efff; }
+}
+
+.banned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;                       /* tighter vertical rhythm */
+  padding: 2px;
+}
+
+.banned-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;         
+  background: #5a466d;
+  border: 1px solid #d68cb9;
+  border-radius: 8px;
+  font-size: 12.5px;              
+  line-height: 1.25;
+}
+
+.banned-item .btn.btn-danger-outline {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  line-height: 1.1;
+}

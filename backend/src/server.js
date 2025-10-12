@@ -40,29 +40,57 @@ async function start() {
 
     const toHex = (x) => (x?.toHexString?.() ?? String(x || ''));
 
-    io.on('connection', (socket) => {
+   
+    const db = await connectDB();
+    await ensureCollections(db);
+    await ensurePromoteRequestsArray(db);
+
+    if (process.env.SEED_ON_START === 'true') {
+      await runSeed();
+    }
+
+    const users = db.collection('users');
+    const groups = db.collection('groups');
+    const channels = db.collection('channels');
+    const messages = db.collection('messages');
+    const bans = db.collection('bans');
+
+    await bans.createIndex({ channelId: 1, userId: 1 }, { unique: true }).catch(() => { });
+
+     io.on('connection', (socket) => {
       console.log('Client connected:', socket.id);
 
-      socket.on('chat:join', ({ channelId, user }) => {
-        try {
-          const room = `channel:${String(channelId)}`;
-          for (const r of socket.rooms) {
-            if (r.startsWith('channel:')) socket.leave(r);
-          }
-          socket.join(room);
-          socket.data.user = user || null;
+     socket.on('chat:join', async ({ channelId, user }) => {
+  try {
+    const cId = asId(channelId);
+    const uId = asId(user?.id);
+    if (!cId) return;
 
-          socket.to(room).emit('presence:join', {
-            channelId,
-            user: user ? { id: user.id, username: user.username } : null,
-            at: new Date().toISOString(),
-          });
+    if (uId) {
+      const isBanned = await bans.findOne({ channelId: cId, userId: uId });
+      if (isBanned) {
+        socket.emit('chat:denied', { channelId: toHex(cId), reason: 'banned' });
+        return;
+      }
+    }
 
-          socket.emit('chat:joined', { channelId });
-        } catch (e) {
-          console.error('chat:join error', e);
-        }
-      });
+    const room = `channel:${String(channelId)}`;
+    for (const r of socket.rooms) if (r.startsWith('channel:')) socket.leave(r);
+    socket.join(room);
+    socket.data.user = user || null;
+
+    socket.to(room).emit('presence:join', {
+      channelId,
+      user: user ? { id: user.id, username: user.username } : null,
+      at: new Date().toISOString(),
+    });
+
+    socket.emit('chat:joined', { channelId });
+  } catch (e) {
+    console.error('chat:join error', e);
+  }
+});
+
 
       socket.on('chat:leave', ({ channelId }) => {
         try {
@@ -93,19 +121,6 @@ async function start() {
       socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
     });
 
-
-    const db = await connectDB();
-    await ensureCollections(db);
-    await ensurePromoteRequestsArray(db);
-
-    if (process.env.SEED_ON_START === 'true') {
-      await runSeed();
-    }
-
-    const users = db.collection('users');
-    const groups = db.collection('groups');
-    const channels = db.collection('channels');
-    const messages = db.collection('messages');
 
     app.post('/api/users/:id/avatar-data', async (req, res) => {
       try {
@@ -138,6 +153,67 @@ async function start() {
       }
     });
 
+    app.post('/api/channels/:channelId/bans', async (req, res) => {
+  try {
+    const cId = asId(String(req.params.channelId || ''));
+    const uId = asId(String(req.body.userId || ''));
+    const bannedBy = asId(String(req.body.bannedBy || ''));
+    const reason = (req.body.reason || '').trim();
+    if (!cId || !uId || !bannedBy || !reason) {
+      return res.status(400).json({ error: 'invalid_payload' });
+    }
+
+    const [ch, grp, target, actor] = await Promise.all([
+      channels.findOne({ _id: cId }, { projection: { name: 1, groupId: 1 } }),
+      channels.findOne({ _id: cId }).then(ch => ch ? groups.findOne({ _id: ch.groupId }, { projection: { name: 1 } }) : null),
+      users.findOne({ _id: uId }, { projection: { username: 1 } }),
+      users.findOne({ _id: bannedBy }, { projection: { username: 1, role: 1 } }),
+    ]);
+    if (!ch)   return res.status(404).json({ error: 'channel_not_found' });
+    if (!grp)  return res.status(404).json({ error: 'group_not_found' });
+    if (!target) return res.status(404).json({ error: 'target_not_found' });
+    if (!actor)  return res.status(404).json({ error: 'actor_not_found' });
+
+    const targetRole = (target.role || '').toUpperCase?.() || '';
+    const actorRole  = (actor.role  || '').toUpperCase?.() || '';
+    if (String(uId) === String(bannedBy)) return res.status(403).json({ error: 'cannot_ban_self' });
+    if (targetRole === 'SUPER_ADMIN')     return res.status(403).json({ error: 'cannot_ban_super_admin' });
+    if (targetRole === 'GROUP_ADMIN' && actorRole !== 'SUPER_ADMIN') {
+      return res.status(403).json({ error: 'only_super_can_ban_group_admin' });
+    }
+
+    await bans.updateOne(
+      { channelId: cId, userId: uId },
+      {
+        $set: {
+          channelId: cId,
+          channelName: ch.name,       
+          groupId: ch.groupId,        
+          groupName: grp.name,          
+          userId: uId,
+          username: target.username,    
+          bannedBy,
+          bannedByName: actor.username, 
+          reason,
+          createdAt: new Date(),
+        }
+      },
+      { upsert: true }
+    );
+
+    await channels.updateOne({ _id: cId }, { $pull: { memberIds: { $in: [uId, toHex(uId)] } } }).catch(() => {});
+    await ejectUserFromChannel(io, cId, uId);
+
+    io.emit('channels:update');
+    return res.json({ ok: true });
+  } catch (e) {
+    if (e.code === 11000) return res.json({ ok: true });
+    console.error('POST ban failed', e);
+    return res.status(500).json({ error: 'server_error' });
+  }
+});
+
+
     async function ensurePromoteRequestsArray(db) {
       const groups = db.collection('groups');
 
@@ -167,6 +243,22 @@ async function start() {
         res.status(500).json({ error: 'server error' });
       }
     });
+
+async function ejectUserFromChannel(io, channelId, userId) {
+  const room = `channel:${toHex(channelId)}`;
+  for (const [sid, socket] of io.sockets.sockets) {
+    const sUserId = socket?.data?.user?.id ? String(socket.data.user.id) : null;
+    if (!sUserId) continue;
+    if (sUserId === toHex(userId) && socket.rooms.has(room)) {
+      socket.leave(room);
+      socket.to(room).emit('presence:leave', {
+        channelId: toHex(channelId),
+        user: socket.data.user,
+        at: new Date().toISOString(),
+      });
+    }
+  }
+}
 
 
     app.get('/api/health', (_req, res) => {
@@ -218,6 +310,42 @@ async function start() {
       }
     });
 
+
+app.get('/api/admin/ban-reports', async (_req, res) => {
+  try {
+    const rows = await bans.aggregate([
+      { $lookup: { from: 'channels', localField: 'channelId', foreignField: '_id', as: 'ch' } },
+      { $unwind: { path: '$ch', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'groups', localField: 'ch.groupId', foreignField: '_id', as: 'grp' } },
+      { $unwind: { path: '$grp', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'userId', foreignField: '_id', as: 'target' } },
+      { $unwind: { path: '$target', preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: 'users', localField: 'bannedBy', foreignField: '_id', as: 'actor' } },
+      { $unwind: { path: '$actor', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          _id: 0,
+          groupId: { $ifNull: ['$groupId', '$grp._id'] },
+          groupName: { $ifNull: ['$groupName', '$grp.name'] },
+          channelId: '$channelId',
+          channelName: { $ifNull: ['$channelName', '$ch.name'] },
+          userId: '$userId',
+          username: { $ifNull: ['$username', '$target.username'] },
+          bannedBy: '$bannedBy',
+          bannedByName: { $ifNull: ['$bannedByName', '$actor.username'] },
+          reason: 1,
+          createdAt: 1
+        }
+      },
+      { $sort: { createdAt: -1 } }
+    ]).toArray();
+
+    res.json(rows);
+  } catch (e) {
+    console.error('GET /api/admin/ban-reports failed', e);
+    res.status(500).json({ error: 'server_error' });
+  }
+});
 
     app.patch('/api/users/:id', async (req, res) => {
       const id = asId(req.params.id);
@@ -862,6 +990,7 @@ async function start() {
 
         const limit = Math.min(Number(req.query.limit) || 50, 200);
         const before = req.query.before ? new Date(req.query.before) : null;
+        
 
         const query = { channelId };
         if (before && !isNaN(before.getTime())) {
@@ -882,93 +1011,99 @@ async function start() {
     });
 
     app.post('/api/channels/:channelId/messages', async (req, res) => {
-  try {
-    const channelId = asId(req.params.channelId);
-    const senderId  = asId(req.body.userId);
-    const username  = (req.body.username || '').trim();
-    const body      = (req.body.text || req.body.body || '').trim();
-    const imageUrl  = (req.body.imageDataUrl || '').trim();
+      try {
+        const channelId = asId(req.params.channelId);
+        const senderId = asId(req.body.userId);
+        const username = (req.body.username || '').trim();
+        const body = (req.body.text || req.body.body || '').trim();
+        const imageUrl = (req.body.imageDataUrl || '').trim();
 
-    if (!channelId || !senderId || (!body && !imageUrl)) {
-      return res.status(400).json({ error: 'invalid_payload' });
-    }
+        if (!channelId || !senderId || (!body && !imageUrl)) {
+          return res.status(400).json({ error: 'invalid_payload' });
+        }
 
-    const sender = await users.findOne(
-      { _id: senderId },
-      { projection: { username: 1, avatarUrl: 1 } }
-    );
+          const banned = await bans.findOne({ channelId, userId: senderId });
+    if (banned) return res.status(403).json({ error: 'banned_from_channel' });
 
-    const doc = {
-      channelId,
-      senderId,
-      username: username || sender?.username || undefined,
-      avatarUrl: sender?.avatarUrl || undefined,
-      body: body || undefined,
-      imageUrl: imageUrl || undefined,
-      createdAt: new Date(),
-    };
+        const sender = await users.findOne(
+          { _id: senderId },
+          { projection: { username: 1, avatarUrl: 1 } }
+        );
 
-    const result = await messages.insertOne(doc);
-    const saved  = { ...doc, _id: result.insertedId };
+        const doc = {
+          channelId,
+          senderId,
+          username: username || sender?.username || undefined,
+          avatarUrl: sender?.avatarUrl || undefined,
+          body: body || undefined,
+          imageUrl: imageUrl || undefined,
+          createdAt: new Date(),
+        };
 
-    const room = `channel:${toHex(channelId)}`;
+        const result = await messages.insertOne(doc);
+        const saved = { ...doc, _id: result.insertedId };
 
-    io.to(room).emit('chat:message', {
-      _id: saved._id,
-      channelId: toHex(saved.channelId),
-      senderId: toHex(saved.senderId),
-      username: saved.username,
-      avatarUrl: saved.avatarUrl,
-      body: saved.body,
-      imageUrl: saved.imageUrl,
-      createdAt: saved.createdAt,
+        const room = `channel:${toHex(channelId)}`;
+
+        io.to(room).emit('chat:message', {
+          _id: saved._id,
+          channelId: toHex(saved.channelId),
+          senderId: toHex(saved.senderId),
+          username: saved.username,
+          avatarUrl: saved.avatarUrl,
+          body: saved.body,
+          imageUrl: saved.imageUrl,
+          createdAt: saved.createdAt,
+        });
+
+        io.to(room).emit(`messages:update:${toHex(channelId)}`);
+
+        return res.status(201).json(saved);
+      } catch (e) {
+        console.error('POST /api/channels/:channelId/messages failed', e);
+        return res.status(500).json({ error: 'server_error' });
+      }
     });
 
-    io.to(room).emit(`messages:update:${toHex(channelId)}`);
+app.get('/api/channels/:channelId/bans', async (req, res) => {
+  try {
+    const raw = String(req.params.channelId || '');
+    const cId = asId(raw);
+    if (!cId) return res.status(400).json({ error: 'invalid_channelId' });
 
-    return res.status(201).json(saved);
+    const list = await bans
+      .find({ channelId: { $in: [cId, cId.toHexString()] } })
+      .project({ userId: 1, reason: 1, bannedBy: 1, createdAt: 1 }) 
+      .toArray();
+
+    const toHex = (x) => (x?.toHexString?.() ?? String(x ?? ''));
+    const out = list.map(b => ({
+      userId: toHex(b.userId),
+      reason: b.reason || '',
+      bannedBy: toHex(b.bannedBy),
+      createdAt: b.createdAt || null,
+    }));
+
+    res.set('Cache-Control', 'no-cache');
+    res.json(out);
   } catch (e) {
-    console.error('POST /api/channels/:channelId/messages failed', e);
-    return res.status(500).json({ error: 'server_error' });
+    console.error('GET bans failed', e);
+    res.status(500).json({ error: 'server_error' });
   }
 });
 
-    app.post('/api/channels/:channelId/bans', async (req, res) => {
+    app.delete('/api/channels/:channelId/bans/:userId', async (req, res) => {
       try {
         const cId = asId(String(req.params.channelId || ''));
-        const uId = asId(String(req.body.userId || ''));
-        const reason = (req.body.reason || 'No reason provided').trim();
-        const bannedBy = asId(String(req.body.bannedBy || '000000000000000000000000'));
+        const uId = asId(String(req.params.userId || ''));
+        if (!cId || !uId) return res.status(400).json({ error: 'invalid_ids' });
 
-
-        if (!cId || !uId) return res.status(400).json({ error: 'missing_fields' });
-
-        const chan = await channels.findOne({ _id: cId });
-        if (!chan) return res.status(404).json({ error: 'channel_not_found' });
-
-
-        const bans = db.collection('bans');
-
-
-        await bans.insertOne({
-          channelId: cId,
-          userId: uId,
-          reason,
-          bannedBy,
-          createdAt: new Date(),
-        });
-
-
-        const uHex = uId.toHexString();
-        await channels.updateOne(
-          { _id: cId },
-          { $pull: { memberIds: { $in: [uId, uHex] } } }
-        );
+        await bans.deleteOne({ channelId: cId, userId: uId });
 
         io.emit('channels:update');
-        return res.json({ ok: true });
-      } catch (err) {
-        console.error('POST /api/channels/:channelId/bans failed', err);
+        res.json({ ok: true });
+      } catch (e) {
+        console.error('DELETE ban failed', e);
         res.status(500).json({ error: 'server_error' });
       }
     });

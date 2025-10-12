@@ -64,7 +64,7 @@ export class GroupsComponent implements OnInit {
   removeUserId = new Map<string, string | null>();
   banUserId = new Map<string, string | null>();
 
-  banChannel = new Map<string, string>();
+  banChannel = new Map<string, string | null>();
   banReason = new Map<string, string>();
 
   joinRequests = new Map<string, string[]>();
@@ -74,22 +74,60 @@ export class GroupsComponent implements OnInit {
   removeChannelId = new Map<string, string | null>();
   selectedRequestGroupId: string = '';
   pendingByGroup = new Map<string, string[]>();
+  bannedByGroupChannel = new Map<string, Set<string>>();
+  bannedByChannel = new Map<string, Set<string>>();
+/** track ongoing unban requests so we can disable buttons */
+private pendingUnban = new Set<string>();
+private unbanKey = (chId: string, userId: string) => `${String(chId)}|${String(userId)}`;
 
   constructor(
     private auth: AuthService,
     private groupsSvc: GroupsService,
     private chansSvc: ChannelsService,
     private legacy: StorageService,
-
+    private storage: StorageService,
     private router: Router,
     private http: HttpClient,
   ) { }
 
+  banReportsAll: Array<{
+    groupId: string; groupName: string;
+    channelId: string; channelName: string;
+    userId: string; username: string;
+    bannedBy: string; bannedByName: string;
+    reason: string; createdAt: string;
+  }> = [];
+
   async ngOnInit() {
+
 
     this.me = this.auth.currentUser();
     this.isSuper = this.me?.role === 'SUPER_ADMIN';
 
+   if (this.isSuper) {
+  this.http.get<any>('http://localhost:3000/api/admin/ban-reports')
+    .subscribe({
+      next: (res) => {
+        const rows = Array.isArray(res) ? res : (res ? [res] : []);
+        this.banReportsAll = rows.map(r => ({
+          groupId: String(r.groupId || ''),
+          groupName: r.groupName || '',
+          channelId: String(r.channelId || ''),
+          channelName: r.channelName || '',
+          userId: String(r.userId || ''),
+          username: r.username || '',
+          bannedBy: String(r.bannedBy || ''),
+          bannedByName: r.bannedByName || '',
+          reason: r.reason || '',
+          createdAt: r.createdAt || new Date().toISOString(),
+        }));
+      },
+      error: (e) => {
+        console.error('ban reports load failed', e);
+        this.banReportsAll = []; 
+      }
+    });
+}
 
 
     this.legacy.getUsers().subscribe(users => (this.allUsers = users || []));
@@ -110,6 +148,7 @@ export class GroupsComponent implements OnInit {
       await this.preloadGeneralChannels();
     });
   }
+
 
   async loadChannels(groupId: string) {
     try {
@@ -165,6 +204,45 @@ export class GroupsComponent implements OnInit {
 
   pendingReq = new Set<string>();
 
+  isUnbanning(channelId: string, userId: string): boolean {
+  return this.pendingUnban.has(this.unbanKey(channelId, userId));
+}
+
+unbanInSelectedChannel(groupId: string, userId: string): void {
+  if (!this.isSuper) return; 
+
+  const ch = this.selectedChannel(groupId);
+  if (!ch) { alert('Select a channel first'); return; }
+
+  const chId = this.str(ch.id);
+  const key = this.unbanKey(chId, userId);
+
+  if (this.pendingUnban.has(key)) return;
+  this.pendingUnban.add(key);
+
+  this.http.delete(`http://localhost:3000/api/channels/${chId}/bans/${userId}`)
+    .subscribe({
+      next: () => {
+        const set = this.bannedByChannel.get(chId) || new Set<string>();
+        set.delete(this.str(userId));
+        this.bannedByChannel.set(chId, set);
+
+    
+        this.loadBans(chId);
+
+        this.pendingUnban.delete(key);
+      },
+      error: (e) => {
+        console.error('unban failed', e);
+        this.pendingUnban.delete(key);
+        alert('Failed to unban. Check server logs.');
+      }
+    });
+}
+hasSelectedBanChannel(groupId: string): boolean {
+  return !!this.getMap(this.banChannel, groupId);
+}
+
 
   requestPromotion(groupId: string) {
     const targetUserId = this.promoteUserId.get(groupId);
@@ -182,6 +260,15 @@ export class GroupsComponent implements OnInit {
   }
 
 
+  loadBans(channelId: string): void {
+    this.storage.getChannelBans(channelId).subscribe({
+      next: (rows: { userId: string }[]) => {
+        const ids = (rows || []).map((r: { userId: string }) => String(r.userId));
+        this.bannedByChannel.set(channelId, new Set(ids));
+      },
+      error: (e) => console.error('getChannelBans failed', e),
+    });
+  }
 
 
   private refreshRequests(): void {
@@ -215,6 +302,36 @@ export class GroupsComponent implements OnInit {
       this.allGroups.find(g => (g.name || '').toLowerCase() === 'general') ||
       null
     );
+  }
+
+  onBanChannelChange(groupId: string, channelId: string | null) {
+    if (channelId) this.loadBans(channelId); 
+    this.banUserId.set(groupId, null);       
+  }
+
+  private selectedChannel(groupId: string): Channel | null {
+    const chId = this.getMap(this.banChannel, groupId);
+    if (!chId) return null;
+    const list = this.channelsOf(groupId);
+    return list.find(c => this.str(c.id) === this.str(chId)) || null;
+  }
+
+  bannableUsersForSelectedChannel(groupId: string): User[] {
+    const ch = this.selectedChannel(groupId);
+    if (!ch) return [];
+
+    const chId = this.str(ch.id);
+    const banned = this.bannedByChannel.get(chId) || new Set<string>();
+    const memberSet = new Set((ch as any).memberIds?.map((m: any) => this.str(m)) || []);
+    const meId = this.str(this.me?.id);
+
+    return this.allUsers
+      .filter(u => memberSet.has(this.str(u.id)))
+      .filter(u => !banned.has(this.str(u.id)))
+      .filter(u => (u.role || '').toUpperCase() !== 'SUPER_ADMIN')
+      .filter(u => this.str(u.id) !== meId)
+      .filter(u => this.isSuper || (u.role || '').toUpperCase() !== 'GROUP_ADMIN')
+      .sort((a, b) => (a.username || '').localeCompare(b.username || ''));
   }
 
 
@@ -259,7 +376,6 @@ export class GroupsComponent implements OnInit {
   isInGroup(groupId: string): boolean {
     return !!this.me && this.userInGroup(this.me.id, groupId);
   }
-
 
 
   get discoverGroups(): Group[] {
@@ -362,6 +478,14 @@ export class GroupsComponent implements OnInit {
     await this.chansSvc.create(groupId, name);
     const list = await this.chansSvc.list(groupId).catch(() => []);
     this.channelsCache.set(groupId, list);
+  }
+
+  getSelectableUsers(channelId: string, group: Group, allUsers: User[]) {
+    const banned = this.bannedByChannel.get(channelId) || new Set<string>();
+    const memberIds = new Set(group.memberIds.map(String)); 
+    return allUsers
+      .filter(u => memberIds.has(u.id))
+      .filter(u => !banned.has(u.id));
   }
 
   async removeChannel(groupId: string) {
@@ -547,25 +671,32 @@ export class GroupsComponent implements OnInit {
     });
   }
 
-  banInChannel(groupId: string) {
-    const channelId = this.banChannel.get(groupId);
-    const uid = this.banUserId.get(groupId);
-    const reason = (this.banReason.get(groupId) || '').trim();
-    if (!channelId || !uid || !reason) return;
+banInChannel(groupId: string) {
+  const channelId = this.getMap(this.banChannel, groupId);
+  const targetId = this.banUserId.get(groupId);
+  const reason = (this.banReason.get(groupId) || '').trim();
+  if (!channelId || !targetId || !reason) return;
 
-    const body = { userId: uid, reason, bannedBy: this.me?.id || 'unknown' };
-
-    this.http.post(`http://localhost:3000/api/channels/${channelId}/bans`, body)
-      .subscribe({
-        next: () => {
-          alert('User banned from channel and removed.');
-          this.groupsSvc.refresh();
-
-          this.chansSvc.list(groupId);
-
-        },
-      });
+  const meName = this.me?.username || '';
+  const meFromDb = this.allUsers.find(u => u.id === this.me?.id) 
+                || this.allUsers.find(u => u.username === meName);
+  if (!meFromDb) {
+    alert('Your user was not found in the database. Please re-login so we can use your DB id.');
+    return;
   }
+
+  const body = { userId: targetId, reason, bannedBy: meFromDb.id };
+
+  this.http.post(`http://localhost:3000/api/channels/${channelId}/bans`, body)
+    .subscribe({
+      next: () => {
+        this.loadBans(String(channelId));
+        this.banUserId.set(groupId, null);
+        alert('User banned from channel and removed.');
+      },
+      error: e => console.error('ban failed', e)
+    });
+}
 
 
   private str(x: any): string {
@@ -669,6 +800,17 @@ export class GroupsComponent implements OnInit {
       this.userInGroup(u.id, groupId) && u.id !== this.me?.id
     );
   }
+
+  getBannedUsers(groupId: string): User[] {
+  if (!this.isSuper) return [];
+  const ch = this.selectedChannel(groupId);
+  if (!ch) return [];
+  const chId = this.str(ch.id);
+  const banned = this.bannedByChannel.get(chId) || new Set<string>();
+  return this.allUsers
+    .filter(u => banned.has(this.str(u.id)))
+    .sort((a, b) => (a.username || '').localeCompare(b.username || ''));
+}
 
   removeAnyUserGlobal() {
     if (!this.isSuper) return;

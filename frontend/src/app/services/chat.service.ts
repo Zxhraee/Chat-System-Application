@@ -35,6 +35,12 @@ export class ChatService {
   private streams = new Map<string, BehaviorSubject<Message[]>>();
   private joined: string | null = null;
 
+  private deniedSubject = new BehaviorSubject<{ channelId: string; reason?: string } | null>(null);
+  denied$: Observable<{ channelId: string; reason?: string } | null> = this.deniedSubject.asObservable();
+
+  private joinedSubject = new BehaviorSubject<{ channelId: string } | null>(null);
+  joined$: Observable<{ channelId: string } | null> = this.joinedSubject.asObservable();
+
   private adapt(m: SMessage): Message {
     return {
       id: m._id,
@@ -47,56 +53,55 @@ export class ChatService {
       imageUrl: m.imageUrl,
     };
   }
-  
-  async sendImageFile(channelId: string, senderId: string, file: File, username?: string) {
-  // keep under your server's JSON limit (6 MB) — data URLs add ~33% overhead
-  if (file.size > 4 * 1024 * 1024) throw new Error('Image too large (max ~4MB).');
-  const imageDataUrl = await fileToDataURL(file);
-  const payload = { userId: senderId, username, imageDataUrl };
-  // toPromise for convenient await in components
-  return this.http.post<SMessage>(`${this.apiBase}/channels/${channelId}/messages`, payload).toPromise();
-}
 
-/** Send when you already have a data URL (e.g., from canvas/clipboard) */
-sendImageDataUrl(channelId: string, senderId: string, imageDataUrl: string, username?: string) {
-  const payload = { userId: senderId, username, imageDataUrl };
-  return this.http.post<SMessage>(`${this.apiBase}/channels/${channelId}/messages`, payload);
-}
+  async sendImageFile(channelId: string, senderId: string, file: File, username?: string) {
+    if (file.size > 4 * 1024 * 1024) throw new Error('Image too large (max ~4MB).');
+    const imageDataUrl = await fileToDataURL(file);
+    const payload = { userId: senderId, username, imageDataUrl };
+    return this.http.post<SMessage>(`${this.apiBase}/channels/${channelId}/messages`, payload).toPromise();
+  }
+
+  sendImageDataUrl(channelId: string, senderId: string, imageDataUrl: string, username?: string) {
+    const payload = { userId: senderId, username, imageDataUrl };
+    return this.http.post<SMessage>(`${this.apiBase}/channels/${channelId}/messages`, payload);
+  }
   constructor(private http: HttpClient) {
     this.socket = io(this.socketBase, { transports: ['websocket'] });
 
     this.socket.on('chat:message', (raw: SMessage) => {
-      const msg = this.adapt(raw);                 
+      const msg = this.adapt(raw);
       const subj = this.streams.get(msg.channelId);
       if (!subj) return;
       const cur = subj.getValue();
       if (cur.some(x => x.id === msg.id)) return;
       subj.next([...cur, msg]);
     });
+    this.socket.on('chat:denied', (p: any) => this.deniedSubject.next(p || null));
+    this.socket.on('chat:joined', (p: any) => this.joinedSubject.next(p || null));
   }
 
- messages$(channelId: string): Observable<Message[]> {
-  const key = String(channelId);               
-  if (!this.streams.has(key)) {
-    this.streams.set(key, new BehaviorSubject<Message[]>([]));
-    this.loadHistory(key);
+  messages$(channelId: string): Observable<Message[]> {
+    const key = String(channelId);
+    if (!this.streams.has(key)) {
+      this.streams.set(key, new BehaviorSubject<Message[]>([]));
+      this.loadHistory(key);
+    }
+    return this.streams.get(key)!.asObservable();
   }
-  return this.streams.get(key)!.asObservable();
-}
 
-joinChannel(channelId: string, user?: { id: string; username: string } | null) {
-  const key = String(channelId);
-  if (this.joined && this.joined !== key) {
-    this.socket.emit('chat:leave', { channelId: this.joined });
-  }
-  this.joined = key;
-  this.socket.emit('chat:join', { channelId: key, user: user ?? null });
+  joinChannel(channelId: string, user?: { id: string; username: string } | null) {
+    const key = String(channelId);
+    if (this.joined && this.joined !== key) {
+      this.socket.emit('chat:leave', { channelId: this.joined });
+    }
+    this.joined = key;
+    this.socket.emit('chat:join', { channelId: key, user: user ?? null });
 
-  if (!this.streams.has(key)) {
-    this.streams.set(key, new BehaviorSubject<Message[]>([]));
-    this.loadHistory(key);
+    if (!this.streams.has(key)) {
+      this.streams.set(key, new BehaviorSubject<Message[]>([]));
+      this.loadHistory(key);
+    }
   }
-}
 
 
   leaveChannel(channelId: string) {
@@ -104,23 +109,23 @@ joinChannel(channelId: string, user?: { id: string; username: string } | null) {
     this.socket.emit('chat:leave', { channelId });
   }
 
-private loadHistory(channelId: string, limit = 50) {
-  const key = String(channelId);
-  const params = new HttpParams().set('limit', String(limit));
+  private loadHistory(channelId: string, limit = 50) {
+    const key = String(channelId);
+    const params = new HttpParams().set('limit', String(limit));
 
-  this.http.get<SMessage[]>(`${this.apiBase}/channels/${key}/messages`, { params, observe: 'response' })
-    .subscribe({
-      next: (res: HttpResponse<SMessage[]>) => {
-        if (res.status === 200 && res.body) {
-          const subj = this.streams.get(key);
-          if (!subj) return;
-          const adapted = res.body.map(row => this.adapt(row));
-          subj.next(adapted);
-        }
-      },
-      error: (e) => console.error('loadHistory failed', e),
-    });
-}
+    this.http.get<SMessage[]>(`${this.apiBase}/channels/${key}/messages`, { params, observe: 'response' })
+      .subscribe({
+        next: (res: HttpResponse<SMessage[]>) => {
+          if (res.status === 200 && res.body) {
+            const subj = this.streams.get(key);
+            if (!subj) return;
+            const adapted = res.body.map(row => this.adapt(row));
+            subj.next(adapted);
+          }
+        },
+        error: (e) => console.error('loadHistory failed', e),
+      });
+  }
 
   sendMessage(channelId: string, senderId: string, text: string, username?: string) {
     const payload = { userId: senderId, text, username };

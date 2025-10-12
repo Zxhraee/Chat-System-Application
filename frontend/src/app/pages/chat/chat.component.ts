@@ -39,6 +39,10 @@ export class ChatComponent implements OnInit, OnDestroy {
   private subMe?: Subscription;
   private subUsers?: Subscription;
   private subMsgs?: Subscription;
+  isBannedFromChannel = false;
+  private subDenied?: Subscription;
+  private subJoinedEvt?: Subscription;
+
 
   constructor(
     private route: ActivatedRoute,
@@ -53,6 +57,19 @@ export class ChatComponent implements OnInit, OnDestroy {
     this.subUsers = this.store.getUsers().subscribe(users => {
       this.userMap = new Map(users.map(u => [u.id, u]));
       this.recomputeView();
+
+      this.subDenied = this.chat.denied$.subscribe(ev => {
+        if (ev && ev.channelId === this.channelId && ev.reason === 'banned') {
+          this.isBannedFromChannel = true;
+        }
+      });
+
+      this.subJoinedEvt = this.chat.joined$.subscribe(ev => {
+        if (ev && ev.channelId === this.channelId) {
+          this.isBannedFromChannel = false;
+        }
+      });
+
     });
 
 
@@ -105,6 +122,7 @@ export class ChatComponent implements OnInit, OnDestroy {
     });
   }
 
+
   private setActiveChannel(id: string) {
     if (!id) return;
 
@@ -113,6 +131,8 @@ export class ChatComponent implements OnInit, OnDestroy {
     }
 
     this.channelId = id;
+    this.isBannedFromChannel = false;
+
     const ch = this.channels.find(c => c.id === id);
     this.activeChannelName = ch?.name || '';
 
@@ -144,23 +164,23 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
   async pickImage(evt: Event) {
-  const input = evt.target as HTMLInputElement;
-  const file = (input.files && input.files[0]) || null;
-  if (!file || !this.channelId || !this.me) return;
+    const input = evt.target as HTMLInputElement;
+    const file = (input.files && input.files[0]) || null;
+    if (!file || !this.channelId || !this.me) return;
 
-  try {
-    await this.chat.sendImageFile(this.channelId, this.me.id, file, this.me.username);
-  } catch (e) {
-    console.error('send image failed', e);
-  } finally {
-    input.value = ''; 
+    try {
+      await this.chat.sendImageFile(this.channelId, this.me.id, file, this.me.username);
+    } catch (e) {
+      console.error('send image failed', e);
+    } finally {
+      input.value = '';
+    }
   }
-}
 
-onImageLoad(event: Event): void {
-  const target = event.target as HTMLImageElement;
-  target.classList.add('loaded');
-}
+  onImageLoad(event: Event): void {
+    const target = event.target as HTMLImageElement;
+    target.classList.add('loaded');
+  }
 
   ngOnDestroy(): void {
     if (this.channelId) this.chat.leaveChannel(this.channelId);
@@ -170,5 +190,7 @@ onImageLoad(event: Event): void {
     this.subMe?.unsubscribe();
     this.subUsers?.unsubscribe();
     this.subMsgs?.unsubscribe();
+    this.subDenied?.unsubscribe();
+    this.subJoinedEvt?.unsubscribe();
   }
 }

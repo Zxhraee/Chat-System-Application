@@ -14,6 +14,10 @@
     <div *ngIf="viewMessages.length === 0" class="chat-empty">
       No messages yet.
     </div>
+    <div class="banned-banner" *ngIf="isBannedFromChannel">
+      You are currently banned from this channel. Please contact admin.
+    </div>
+
 
     <div *ngFor="let m of viewMessages">
       <div class="chat-message">
