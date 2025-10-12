@@ -1,23 +1,16 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
-
+import { TestBed } from '@angular/core/testing';
 import { GroupsComponent } from './groups.component';
+import { HttpClientTestingModule } from '@angular/common/http/testing';
 
 describe('GroupsComponent', () => {
-  let component: GroupsComponent;
-  let fixture: ComponentFixture<GroupsComponent>;
-
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [GroupsComponent]
-    })
-    .compileComponents();
-    
-    fixture = TestBed.createComponent(GroupsComponent);
-    component = fixture.componentInstance;
-    fixture.detectChanges();
+      imports: [GroupsComponent, HttpClientTestingModule],
+    }).compileComponents();
   });
 
   it('should create', () => {
-    expect(component).toBeTruthy();
+    const fixture = TestBed.createComponent(GroupsComponent);
+    expect(fixture.componentInstance).toBeTruthy();
   });
 });

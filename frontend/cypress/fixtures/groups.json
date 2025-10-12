@@ -1,0 +1,3 @@
+[
+  { "id":"G1", "name":"General", "ownerId":"U1", "adminIds":["U1"], "memberIds":["U1","U2"] }
+]
