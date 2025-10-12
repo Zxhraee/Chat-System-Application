@@ -377,6 +377,16 @@ hasSelectedBanChannel(groupId: string): boolean {
     return !!this.me && this.userInGroup(this.me.id, groupId);
   }
 
+openAdminFor: string | null = null;
+
+isAdminOpen(groupId: string): boolean {
+  return this.openAdminFor === groupId;
+}
+
+toggleAdmin(groupId: string): void {
+  this.openAdminFor = this.openAdminFor === groupId ? null : groupId;
+}
+
 
   get discoverGroups(): Group[] {
     if (this.isSuper) return [];
@@ -392,7 +402,7 @@ hasSelectedBanChannel(groupId: string): boolean {
     const u = this.allUsers.find(x => x.id === id);
     return u?.username ?? id;
   }
-  displayName(u: User): string { return `${u.username} (${u.id})`; }
+  displayName(u: User): string { return `${u.username}`; }
 
   channelsOf(gid: string): Channel[] {
     if (!this.channelsCache.has(gid)) {
@@ -833,6 +843,13 @@ banInChannel(groupId: string) {
     });
 
   }
+
+  openGroupId: string | null = null;
+
+toggleOpen(id: string): void {
+  this.openGroupId = (this.openGroupId === id) ? null : id;
+}
+
 
   removeAnyUser(groupId: string): void {
     const uid = this.removeUserId.get(groupId);

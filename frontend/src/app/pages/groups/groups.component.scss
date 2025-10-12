@@ -345,28 +345,27 @@
     .discover-join { font-size: 14px; }
   }
   
-/* === Ban Reports (dark theme to match Groups page) === */
 .section.wide { overflow-x: auto; }
 
 .ban-table {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  background: rgba(42, 36, 59, 0.92);      /* same as .group-card/.card */
-  color: #f5efff;                           /* page text on dark */
-  border: 1px solid #d68cb9;                /* accent border */
+  background: rgba(42, 36, 59, 0.92);     
+  color: #f5efff;                        
+  border: 1px solid #d68cb9;              
   border-radius: 12px;
   overflow: hidden;
-  box-shadow: 0 10px 30px rgba(0,0,0,.28);  /* same shadow as .group-card */
+  box-shadow: 0 10px 30px rgba(0,0,0,.28);  
   font-size: 14px;
-  min-width: 720px;                         /* keep columns readable */
+  min-width: 720px;                       
 }
 
 .ban-table thead th {
   text-align: left;
   padding: 12px 14px;
-  background: #5a466d;                      /* matches .pending-item bg */
-  color: #ffe0f1;                           /* light heading text */
+  background: #5a466d;                    
+  color: #ffe0f1;                         
   font-weight: 700;
   border-bottom: 1px solid #d68cb9;
   letter-spacing: .01em;
@@ -375,35 +374,29 @@
 .ban-table tbody td {
   padding: 12px 14px;
   color: #f5efff;
-  border-bottom: 1px solid rgba(168,153,199,.25); /* subtle row divider */
+  border-bottom: 1px solid rgba(168,153,199,.25); 
   vertical-align: top;
 }
 
-/* Zebra + hover with your accent tint */
 .ban-table tbody tr:nth-child(even) {
   background: rgba(214, 140, 185, .04);
 }
-.ban-table tbody tr:hover {
-  background: rgba(214, 140, 185, .12);
-}
 
-/* Column tweaks */
-.ban-table td:nth-child(1) {               /* When */
+.ban-table td:nth-child(1) {          
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
-  color: #bfb2db;                           /* muted time */
+  color: #bfb2db;                           
 }
 
-.ban-table td:nth-child(5) {               /* Banned by */
+.ban-table td:nth-child(5) {             
   color: #ffe0f1;
   font-weight: 600;
 }
 
-.ban-table td:last-child {                  /* Reason */
+.ban-table td:last-child {              
   word-break: break-word;
 }
 
-/* Optional chips for IDs inside cells (if you add them later) */
 .ban-chip {
   display: inline-block;
   padding: 2px 8px;
@@ -414,11 +407,11 @@
   font-size: 12px;
   line-height: 1.2;
 }
-/* Unban section spacing + colors (matches your theme) */
+
 .unban-section {
-  margin-top: 20px;               /* extra spacing above */
+  margin-top: 20px;            
   padding-top: 12px;
-  border-top: 1px solid #d68cb9;  /* same divider as admin panel */
+  border-top: 1px solid #d68cb9;  
 
   .label,
   .controls,
@@ -429,7 +422,7 @@
 .banned-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;                       /* tighter vertical rhythm */
+  gap: 6px;                       
   padding: 2px;
 }
 
@@ -451,4 +444,33 @@
   font-size: 12px;
   border-radius: 6px;
   line-height: 1.1;
+}
+
+.dropdown {
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform-origin: top;
+  transform: scaleY(0.98);
+  transition: max-height .35s ease, opacity .25s ease, transform .35s ease;
+}
+
+.dropdown.open {
+  max-height: 1600px;
+  opacity: 1;
+  transform: scaleY(1);
+}
+
+.admin-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  .caret {
+    display: inline-block;
+    transition: transform .25s ease;
+  }
+  .caret.rot {
+    transform: rotate(180deg);
+  }
 }

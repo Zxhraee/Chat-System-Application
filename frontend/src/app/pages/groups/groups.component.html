@@ -1,4 +1,4 @@
-<h2 class="page-title">Groups</h2>
+<h2 class="page-title">My Groups</h2>
 
 <section *ngIf="canCreateGroup()" class="section narrow">
   <h3 class="section-title">Create group</h3>
@@ -41,11 +41,10 @@
 
 
 <section class="section wide">
-  <h3 class="section-title">My Groups</h3>
-
   <div *ngIf="myGroups.length === 0" class="empty-msg">
     You’re not in any groups yet.
   </div>
+
 
   <ul class="groups-grid">
     <li *ngFor="let g of myGroups" class="group-card">
@@ -68,9 +67,15 @@
         <button class="btn btn-danger-outline" (click)="remove(g.id)" *ngIf="canModify(g) && !isGeneralGroup(g)">
           Delete
         </button>
+        <button class="btn btn-subtle admin-toggle" *ngIf="canAdmin(g) && !isGeneralGroup(g)"
+          (click)="toggleAdmin(g.id)" [attr.aria-expanded]="isAdminOpen(g.id)">
+          Admin tools
+          <span class="caret" [class.rot]="isAdminOpen(g.id)">▾</span>
+        </button>
       </div>
 
-      <div *ngIf="canAdmin(g) && !isGeneralGroup(g)" class="admin-panel">
+      <div *ngIf="canAdmin(g) && !isGeneralGroup(g)" class="admin-panel dropdown" [class.open]="isAdminOpen(g.id)"
+        [attr.aria-hidden]="!isAdminOpen(g.id)">
         <div class="row">
           <label class="label">Add member</label>
           <div class="controls">
@@ -149,7 +154,7 @@
                 (ngModelChange)="setMap(removeChannelId, g.id, $event)" name="rc-{{g.id}}">
                 <option [ngValue]="null">Select channel…</option>
                 <option *ngFor="let c of channelsOf(g.id)" [value]="c.id">
-                  {{ c.name }} ({{ c.id }})
+                  {{ c.name }}
                 </option>
               </select>
               <button class="btn btn-subtle" (click)="removeChannel(g.id)">Remove</button>
@@ -167,7 +172,7 @@
                 (ngModelChange)="setMap(banChannel, g.id, $event); onBanChannelChange(g.id, $event)" name="bc-{{g.id}}">
                 <option [ngValue]="null">Select channel…</option>
                 <option *ngFor="let c of channelsOf(g.id)" [ngValue]="c.id">
-                  {{ c.name }} ({{ c.id }})
+                  {{ c.name }}
                 </option>
               </select>
 
@@ -198,36 +203,32 @@
             </div>
           </div>
 
-<div class="row unban-section" *ngIf="isSuper">
-  <label class="label">Banned</label>
-  <div class="controls">
+          <div class="row unban-section" *ngIf="isSuper">
+            <label class="label">Banned</label>
+            <div class="controls">
 
-    <ng-container *ngIf="getMap(banChannel, g.id) as chId; else pickAChannel">
+              <ng-container *ngIf="getMap(banChannel, g.id) as chId; else pickAChannel">
 
-      <div class="banned-list" *ngIf="getBannedUsers(g.id).length; else noneBanned">
-        <div class="banned-item" *ngFor="let u of getBannedUsers(g.id)">
-          <span>{{ displayName(u) }}</span>
-          <button
-            class="btn btn-danger-outline"
-            (click)="unbanInSelectedChannel(g.id, u.id)"
-            [disabled]="isUnbanning(chId, u.id)"
-            title="Remove ban from this channel"
-          >
-            {{ isUnbanning(chId, u.id) ? 'Unbanning…' : 'Unban' }}
-          </button>
-        </div>
-      </div>
+                <div class="banned-list" *ngIf="getBannedUsers(g.id).length; else noneBanned">
+                  <div class="banned-item" *ngFor="let u of getBannedUsers(g.id)">
+                    <span>{{ displayName(u) }}</span>
+                    <button class="btn btn-danger-outline" (click)="unbanInSelectedChannel(g.id, u.id)"
+                      [disabled]="isUnbanning(chId, u.id)" title="Remove ban from this channel">
+                      {{ isUnbanning(chId, u.id) ? 'Unbanning…' : 'Unban' }}
+                    </button>
+                  </div>
+                </div>
 
-      <ng-template #noneBanned>
-        <div class="pending">No one is banned in this channel.</div>
-      </ng-template>
-    </ng-container>
+                <ng-template #noneBanned>
+                  <div class="pending">No one is banned in this channel.</div>
+                </ng-template>
+              </ng-container>
 
-    <ng-template #pickAChannel>
-      <div class="pending">Pick a channel above to manage bans.</div>
-    </ng-template>
-  </div>
-</div>
+              <ng-template #pickAChannel>
+                <div class="pending">Pick a channel above to manage bans.</div>
+              </ng-template>
+            </div>
+          </div>
         </div>
 
 
@@ -250,7 +251,7 @@
 </section>
 
 <section *ngIf="!isSuper && discoverGroups.length" class="discover card">
-  <h3 class="card-title">All groups</h3>
+  <h3 class="card-title">Other Groups</h3>
   <ul class="discover-list">
     <li *ngFor="let g of discoverGroups" class="discover-item">
       <strong class="discover-name">{{ g.name }}</strong>
@@ -283,7 +284,7 @@
           <td>{{ r.createdAt | date:'d MMM y, h:mm a' }}</td>
           <td>{{ r.groupName }}</td>
           <td>{{ r.channelName }}</td>
-          <td>{{ r.username }} ({{ r.userId }})</td>
+          <td>{{ r.username }}</td>
           <td>{{ r.bannedByName }}</td>
           <td>{{ r.reason }}</td>
         </tr>
