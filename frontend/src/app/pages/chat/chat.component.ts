@@ -143,6 +143,25 @@ export class ChatComponent implements OnInit, OnDestroy {
       });
   }
 
+  async pickImage(evt: Event) {
+  const input = evt.target as HTMLInputElement;
+  const file = (input.files && input.files[0]) || null;
+  if (!file || !this.channelId || !this.me) return;
+
+  try {
+    await this.chat.sendImageFile(this.channelId, this.me.id, file, this.me.username);
+  } catch (e) {
+    console.error('send image failed', e);
+  } finally {
+    input.value = ''; 
+  }
+}
+
+onImageLoad(event: Event): void {
+  const target = event.target as HTMLImageElement;
+  target.classList.add('loaded');
+}
+
   ngOnDestroy(): void {
     if (this.channelId) this.chat.leaveChannel(this.channelId);
     this.subRoute?.unsubscribe();

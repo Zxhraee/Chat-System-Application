@@ -12,19 +12,17 @@
 
   <div class="chat-body">
     <div *ngIf="viewMessages.length === 0" class="chat-empty">
-    No messages yet.
-  </div>
+      No messages yet.
+    </div>
 
-  <div *ngFor="let m of viewMessages">
+    <div *ngFor="let m of viewMessages">
       <div class="chat-message">
-        <img
-    class="chat-avatar"
-    [src]="m.avatarUrl || '../assets/default-avatar.png'"
-  />
+        <img class="chat-avatar" [src]="m.avatarUrl || '../assets/default-avatar.png'" />
         <div class="chat-row">
           <span class="chat-author">{{ m.username }}</span>
-          <span class="chat-text">{{ m.text }}</span>        
-          <div class="chat-when">{{ m.timestamp | date:'d MMMM y' }}</div>
+          <span class="chat-text">{{ m.text }}</span>
+          <img [src]="m.imageUrl" class="chat-image" (load)="onImageLoad($event)" />
+          <div class="chat-when"> {{ m.timestamp | date:'d MMMM y, h:mm a' }}</div>
         </div>
       </div>
     </div>
@@ -32,6 +30,9 @@
 
   <form class="chat-form" (submit)="$event.preventDefault(); send();">
     <input [(ngModel)]="input" name="chatInput" placeholder="Message…" class="chat-input" autocomplete="off" />
+    <input type="file" accept="image/*" #imagePicker hidden (change)="pickImage($event)" />
+
+    <button type="button" class="chat-send" (click)="imagePicker.click()" title="Send image">📸</button>
     <button type="submit" class="chat-send">Send</button>
   </form>
 </section>

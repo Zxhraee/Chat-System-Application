@@ -241,3 +241,18 @@ body,
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+.chat-image {
+  max-width: 150px;
+  max-height: 150px;
+  border-radius: 8px;
+  display: block;
+  margin: 4px auto 0;
+  transform: translateX(-80%); 
+  opacity: 0;
+  transition: opacity .2s ease;
+
+  &.loaded {
+    opacity: 1;
+  }
+}

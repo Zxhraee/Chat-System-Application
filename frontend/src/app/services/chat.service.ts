@@ -5,6 +5,15 @@ import { io, Socket } from 'socket.io-client';
 import { environment } from '../../environments/environment';
 import { Message } from '../models/message';
 
+function fileToDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result));
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+
 type SMessage = {
   _id: string;
   channelId: string;
@@ -38,7 +47,21 @@ export class ChatService {
       imageUrl: m.imageUrl,
     };
   }
+  
+  async sendImageFile(channelId: string, senderId: string, file: File, username?: string) {
+  // keep under your server's JSON limit (6 MB) — data URLs add ~33% overhead
+  if (file.size > 4 * 1024 * 1024) throw new Error('Image too large (max ~4MB).');
+  const imageDataUrl = await fileToDataURL(file);
+  const payload = { userId: senderId, username, imageDataUrl };
+  // toPromise for convenient await in components
+  return this.http.post<SMessage>(`${this.apiBase}/channels/${channelId}/messages`, payload).toPromise();
+}
 
+/** Send when you already have a data URL (e.g., from canvas/clipboard) */
+sendImageDataUrl(channelId: string, senderId: string, imageDataUrl: string, username?: string) {
+  const payload = { userId: senderId, username, imageDataUrl };
+  return this.http.post<SMessage>(`${this.apiBase}/channels/${channelId}/messages`, payload);
+}
   constructor(private http: HttpClient) {
     this.socket = io(this.socketBase, { transports: ['websocket'] });
 
@@ -74,6 +97,7 @@ joinChannel(channelId: string, user?: { id: string; username: string } | null) {
     this.loadHistory(key);
   }
 }
+
 
   leaveChannel(channelId: string) {
     if (this.joined === channelId) this.joined = null;
