@@ -14,7 +14,7 @@ import { User } from './models/user';
 export class AppComponent {
   title = 'Chat System';
 
-  constructor(private auth: AuthService, private router: Router) {}
+  constructor(private auth: AuthService, private router: Router) { }
 
   //Currently Authenticated User
   user(): User | null {
@@ -33,13 +33,14 @@ export class AppComponent {
     return !!user && (user.role === 'GROUP_ADMIN' || user.role === 'SUPER_ADMIN');
   }
 
-logout(): void {
-  localStorage.removeItem('key_session');
-  localStorage.removeItem('user');
-  localStorage.removeItem('jwt');
-  localStorage.removeItem('current_user_cache');
+  //Log out User and clear session and session data
+  logout(): void {
+    localStorage.removeItem('key_session');
+    localStorage.removeItem('user');
+    localStorage.removeItem('jwt');
+    localStorage.removeItem('current_user_cache');
 
-  this.auth.logout();
-  this.router.navigate(['/login']);
-}
+    this.auth.logout();
+    this.router.navigate(['/login']);
+  }
 }

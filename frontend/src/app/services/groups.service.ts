@@ -3,13 +3,16 @@ import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, firstValueFrom } from 'rxjs';
 import { Group } from '../models/group';
 
+//API Base URL
 const BASE = 'http://localhost:3000/api';
 
+//Convert to string helper
 function idToString(x: any) {
   if (x && typeof x === 'object' && x.$oid) return x.$oid;
   return typeof x === 'string' ? x : x?.toString?.() ?? '';
 }
 
+//User Shape for Promotable List
 type PromotableLite = {
   id: string;
   username: string;
@@ -17,6 +20,7 @@ type PromotableLite = {
   role: 'SUPER_ADMIN' | 'GROUP_ADMIN' | 'USER';
 };
 
+//normalise server group data
 function toGroup(x: any): Group {
   const owner = x.ownerId ?? x.owner?._id ?? '';
   const defaultChan = x.channelId ?? x.defaultChannelId ?? x.channels?.[0]?._id ?? '';
@@ -37,36 +41,38 @@ function toGroup(x: any): Group {
 
 @Injectable({ providedIn: 'root' })
 export class GroupsService {
+  //Current groups list Stream
   private _groups$ = new BehaviorSubject<Group[]>([]);
+  //Observable of groups
   groups$ = this._groups$.asObservable();
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient) { }
 
-requestPromotion(groupId: string, userId: string, requestedBy: string) {
-  return firstValueFrom(
-    this.http.post<{ ok: boolean; message?: string }>(
-      `${BASE}/groups/${groupId}/promotion-requests`,
-      { userId, requestedBy }
-    )
-  );
-}
+  //Add Promotion request in server
+  requestPromotion(groupId: string, userId: string, requestedBy: string) {
+    return firstValueFrom(
+      this.http.post<{ ok: boolean; message?: string }>(
+        `${BASE}/groups/${groupId}/promotion-requests`,
+        { userId, requestedBy }
+      )
+    );
+  }
 
+  //Fetch promotion requests
+  async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
+    const res = await firstValueFrom(
+      this.http.get<{ requests: any[] }>(
+        `${BASE}/groups/${groupId}/promotion-requests`,
+        { params: { t: Date.now().toString() } }
+      )
+    );
+    const requests = (res?.requests ?? []).map(v =>
+      v && typeof v === 'object' && '$oid' in v ? (v as any).$oid : String(v)
+    );
+    return { requests };
+  }
 
-
-async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
-  const res = await firstValueFrom(
-    this.http.get<{ requests: any[] }>(
-      `${BASE}/groups/${groupId}/promotion-requests`,
-      { params: { t: Date.now().toString() } } 
-    )
-  );
-  const requests = (res?.requests ?? []).map(v =>
-    v && typeof v === 'object' && '$oid' in v ? (v as any).$oid : String(v)
-  );
-  return { requests };
-}
-
-
+  //Approve User Promotion Request
   approvePromotion(groupId: string, userId: string) {
     return firstValueFrom(
       this.http.post<{ ok: boolean }>(
@@ -76,6 +82,7 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     );
   }
 
+  //Reject Promotion Request
   rejectPromotion(groupId: string, userId: string) {
     return firstValueFrom(
       this.http.post<{ ok: boolean }>(
@@ -85,24 +92,26 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     );
   }
 
+  //Reload groups from server and update stream
   async refresh(): Promise<void> {
     const raw = await firstValueFrom(this.http.get<any[]>(`${BASE}/groups`));
     this._groups$.next((raw || []).map(toGroup));
   }
 
- async getPromotable(groupId: string): Promise<PromotableLite[]> {
-  const raw = await firstValueFrom(
-    this.http.get<any[]>(`${BASE}/groups/${groupId}/promotable`)
-  );
-  return (raw || []).map(u => ({
-    id: (u._id?.$oid ?? u._id ?? u.id).toString(),
-    username: u.username,
-    email: u.email,
-    role: u.role,
-  }));
-}
+  //get list of members that can be promoted
+  async getPromotable(groupId: string): Promise<PromotableLite[]> {
+    const raw = await firstValueFrom(
+      this.http.get<any[]>(`${BASE}/groups/${groupId}/promotable`)
+    );
+    return (raw || []).map(u => ({
+      id: (u._id?.$oid ?? u._id ?? u.id).toString(),
+      username: u.username,
+      email: u.email,
+      role: u.role,
+    }));
+  }
 
-
+  //fetch group by Id
   async getById(id: string): Promise<Group | null> {
     try {
       const raw = await firstValueFrom(this.http.get<any>(`${BASE}/groups/${id}`));
@@ -112,6 +121,7 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     }
   }
 
+  //Create group
   async create(name: string, ownerId: string): Promise<Group> {
     const raw = await firstValueFrom(
       this.http.post<any>(`${BASE}/groups`, { name, ownerId })
@@ -121,6 +131,7 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     return g;
   }
 
+  //Add member to a group
   async join(groupId: string, userId: string): Promise<void> {
     const raw = await firstValueFrom(
       this.http.post<any>(`${BASE}/groups/${groupId}/members`, { userId })
@@ -137,6 +148,7 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     }
   }
 
+  //remove member from group
   async leave(groupId: string, userId: string, actingRole: string): Promise<void> {
     await firstValueFrom(
       this.http.delete(`${BASE}/groups/${groupId}/members/${userId}`, {
@@ -146,6 +158,7 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     await this.refresh();
   }
 
+  //Create default channel in group
   async createDefaultChannel(groupId: string): Promise<{ id: string; name: string }> {
     const raw = await firstValueFrom(
       this.http.post<any>(`${BASE}/groups/${groupId}/channels`, {
@@ -156,11 +169,13 @@ async loadPromotionRequests(groupId: string): Promise<{ requests: string[] }> {
     return { id: raw._id ?? raw.id, name: raw.name };
   }
 
+  //Rename group
   async rename(groupId: string, newName: string): Promise<void> {
     await firstValueFrom(this.http.patch(`${BASE}/groups/${groupId}`, { name: newName }));
     await this.refresh();
   }
 
+  //Delete group
   async delete(groupId: string): Promise<void> {
     await firstValueFrom(this.http.delete(`${BASE}/groups/${groupId}`));
     await this.refresh();

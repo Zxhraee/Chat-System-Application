@@ -1,5 +1,7 @@
+//Imports
 const { ObjectId } = require('mongodb');
 
+//Helper to force values into valid ObjectID
 function asId(val) {
   if (!val) return null;
   try {
@@ -13,8 +15,10 @@ function asId(val) {
   }
 }
 
+//return strings with non whitespace
 function isNonEmptyString(x) {
   return typeof x === 'string' && x.trim().length > 0;
 }
 
+//export helpers
 module.exports = { asId, isNonEmptyString };

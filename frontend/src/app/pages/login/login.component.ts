@@ -13,16 +13,20 @@ import { AuthService } from '../../services/auth.service';
   styleUrl: './login.component.scss'
 })
 export class LoginComponent {
+  //inputs
   username = '';
   password = '';
+  //string to store error
   error = '';
 
   constructor(private auth: AuthService, private router: Router) {}
 
  submit(){
+  //clear previous error before login
   this.error = '';
   this.auth.login(this.username, this.password).subscribe({
     next: (user) => {
+      //return to menu if invalid user credentials
       if (!user) { this.error = 'Invalid user credentials'; return; }
       this.router.navigate(['/menu']);
     },

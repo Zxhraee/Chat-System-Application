@@ -1,8 +1,11 @@
+<!-- Back Button to Menu -->
 <button routerLink="/menu" class="back-btn">Back to Menu</button>
+<!-- Chat Name -->
 <h1 class="app-title"> {{ activeGroup?.name }} Chat </h1>
 
 <section class="chat-shell" id="chat">
   <header class="chat-header">
+    <!-- Chat Name with Channel -->
     {{ activeGroup?.name }} /
     <select [ngModel]="channelId" (ngModelChange)="goChannel($event)" class="channel-select">
       <option *ngFor="let c of channels" [ngValue]="c.id">{{ c.name }}</option>
@@ -10,6 +13,7 @@
     Chat
   </header>
 
+  <!-- Message Display Box -->
   <div class="chat-body">
     <div *ngIf="viewMessages.length === 0" class="chat-empty">
       No messages yet.
@@ -18,13 +22,14 @@
       You are currently banned from this channel. Please contact admin.
     </div>
 
-
     <div *ngFor="let m of viewMessages">
       <div class="chat-message">
+        <!-- User Profile Picture Display -->
         <img class="chat-avatar" [src]="m.avatarUrl || '../assets/default-avatar.png'" />
         <div class="chat-row">
           <span class="chat-author">{{ m.username }}</span>
           <span class="chat-text">{{ m.text }}</span>
+          <!-- Message Image Display -->
           <img [src]="m.imageUrl" class="chat-image" (load)="onImageLoad($event)" />
           <div class="chat-when"> {{ m.timestamp | date:'d MMMM y, h:mm a' }}</div>
         </div>
@@ -33,10 +38,12 @@
   </div>
 
   <form class="chat-form" (submit)="$event.preventDefault(); send();">
+    <!-- Message Input Field -->
     <input [(ngModel)]="input" name="chatInput" placeholder="Message…" class="chat-input" autocomplete="off" />
+    <!-- Image Selector -->
     <input type="file" accept="image/*" #imagePicker hidden (change)="pickImage($event)" />
-
     <button type="button" class="chat-send" (click)="imagePicker.click()" title="Send image">📸</button>
+    <!-- Chat Send Button -->
     <button type="submit" class="chat-send">Send</button>
   </form>
 </section>

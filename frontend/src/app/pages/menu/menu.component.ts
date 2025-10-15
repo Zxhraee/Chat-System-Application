@@ -24,33 +24,50 @@ import { Channel } from '../../models/channel';
 })
 
 export class MenuComponent implements OnInit, OnDestroy {
+  //messages for active channel
   messages: Message[] = [];
+  //input model for sending messages
   input = '';
 
+  //current user
   me: User | null = null;
   meResolved = false;
+  //groups user belongs to
   myGroups: Group[] = [];
   myGroupsResolved = false;
   loadingMyGroups = false;
 
+  //current group
   activeGroup: Group | null = null;
+  //channels in group
   channels: Channel[] = [];
+  //current channel id
   channelId: string | null = null;
 
+  //subcriptions
   private subMe?: Subscription;
   private subUserGroups?: Subscription;
   private subAllGroups?: Subscription;
   private subChans?: Subscription;
   private subMsgs?: Subscription;
+  //messages from chat service
   private rawMessages: Message[] = [];
+  //Userid lookup
   private userMap = new Map<string, User>();
+  //messages
   viewMessages: Message[] = [];
+  //user stream subscription
   private subUsers?: Subscription;
+  //display name of active channel
   activeChannelName = '';
+  //default avatar
   readonly defaultAvatar = 'assets/default-avatar.png';
+  //cached general group id
   private generalGroupId: string | null = null;
+  //last loaded user
   private lastUserId: string | null = null;
 
+  //track helpers
   trackById = (_: number, x: { id: string }) => x.id;
   trackByMessageId = (_: number, m: { id: string }) => m.id;
 
@@ -62,47 +79,55 @@ export class MenuComponent implements OnInit, OnDestroy {
     private permissions: PermissionsService,
   ) { }
 
+  //Set true if group name general
   isGeneralGroup(g: Group | null): boolean {
-  return !!g && (g.name || '').trim().toLowerCase() === 'general';
-}
-
-async pickImage(evt: Event) {
-  const input = evt.target as HTMLInputElement;
-  const file = (input.files && input.files[0]) || null;
-  if (!file || !this.channelId || !this.me) return;
-
-  try {
-    await this.chat.sendImageFile(this.channelId, this.me.id, file, this.me.username);
-  } catch (e) {
-    console.error('send image failed', e);
-  } finally {
-    input.value = ''; 
+    return !!g && (g.name || '').trim().toLowerCase() === 'general';
   }
-}
 
-onImageLoad(event: Event): void {
-  const target = event.target as HTMLImageElement;
-  target.classList.add('loaded');
-}
+  //Image selection handler
+  async pickImage(evt: Event) {
+    const input = evt.target as HTMLInputElement;
+    const file = (input.files && input.files[0]) || null;
+    if (!file || !this.channelId || !this.me) return;
 
+    try {
+      await this.chat.sendImageFile(this.channelId, this.me.id, file, this.me.username);
+    } catch (e) {
+      console.error('send image failed', e);
+    } finally {
+      input.value = '';
+    }
+  }
+
+  //Add Css when image load
+  onImageLoad(event: Event): void {
+    const target = event.target as HTMLImageElement;
+    target.classList.add('loaded');
+  }
+
+  //Tracker for group list
   trackByGroup = (_: number, g: Group) => g?.id;
 
   ngOnInit(): void {
+    //subscribe to current user stream
     this.subMe = this.storage.getCurrentUser().subscribe(me => {
       this.meResolved = true;
       this.me = me;
-
+      //subscribe to users
       this.subUsers = this.storage.getUsers().subscribe(users => {
         this.userMap = new Map(users.map(u => [u.id, u]));
+        //refresh profile pictures
         this.recomputeView();
       });
 
+      //if logged out, clear state
       if (!me) {
         this.lastUserId = null;
         this.activeGroup = null;
         return;
       }
 
+      //if user changed, refresh groups
       if (this.lastUserId !== me.id) {
         this.lastUserId = me.id;
         this.refreshMyGroups();
@@ -119,41 +144,42 @@ onImageLoad(event: Event): void {
     });
   }
 
+  //reload groups
   private refreshMyGroups(): void {
-  if (!this.me?.id) return;
+    if (!this.me?.id) return;
 
-  this.loadingMyGroups = this.myGroups.length === 0 && !this.myGroupsResolved;
+    this.loadingMyGroups = this.myGroups.length === 0 && !this.myGroupsResolved;
 
-  this.subUserGroups?.unsubscribe();
-  this.subUserGroups = this.storage.getGroupsForUser(this.me.id).pipe(
-    map(userGroups => (userGroups || []).filter(g => !this.isGeneralGroup(g))),
-    filter((nonGeneral) => {
-      if (!this.myGroupsResolved) return true;
+    this.subUserGroups?.unsubscribe();
+    this.subUserGroups = this.storage.getGroupsForUser(this.me.id).pipe(
+      map(userGroups => (userGroups || []).filter(g => !this.isGeneralGroup(g))),
+      filter((nonGeneral) => {
+        if (!this.myGroupsResolved) return true;
 
-      if (this.myGroups.length > 0 && nonGeneral.length === 0) return false;
+        if (this.myGroups.length > 0 && nonGeneral.length === 0) return false;
 
-      if (this.equalGroupLists(this.myGroups, nonGeneral)) return false;
+        if (this.equalGroupLists(this.myGroups, nonGeneral)) return false;
 
-      return true;
-    })
-  )
-  .subscribe({
-    next: (nonGeneral) => {
-      this.myGroups = nonGeneral;
+        return true;
+      })
+    )
+      .subscribe({
+        next: (nonGeneral) => {
+          this.myGroups = nonGeneral;
 
-      const stillValid = this.activeGroup && this.myGroups.some(g => g.id === this.activeGroup!.id);
-      if (!stillValid) this.activeGroup = this.myGroups[0] ?? null;
+          const stillValid = this.activeGroup && this.myGroups.some(g => g.id === this.activeGroup!.id);
+          if (!stillValid) this.activeGroup = this.myGroups[0] ?? null;
 
-      this.loadingMyGroups = false;
-      this.myGroupsResolved = true;
-    },
-    error: () => {
-      this.loadingMyGroups = false;
-      this.myGroupsResolved = true;
-    }
-  });
-}
-
+          this.loadingMyGroups = false;
+          this.myGroupsResolved = true;
+        },
+        error: () => {
+          this.loadingMyGroups = false;
+          this.myGroupsResolved = true;
+        }
+      });
+  }
+  //Compare group by id and name
   private equalGroupLists(a: Group[], b: Group[]): boolean {
     if (a === b) return true;
     if (a.length !== b.length) return false;
@@ -163,92 +189,94 @@ onImageLoad(event: Event): void {
     return true;
   }
 
+  //ensure general group present with channels
   private bootstrapGeneralArea(): void {
-  this.subAllGroups?.unsubscribe();
-  this.subAllGroups = this.storage.getGroups().subscribe(allGroups => {
-    const general =
-      (allGroups || []).find(g => (g.name || '').trim().toLowerCase() === 'general') || null;
+    this.subAllGroups?.unsubscribe();
+    this.subAllGroups = this.storage.getGroups().subscribe(allGroups => {
+      const general =
+        (allGroups || []).find(g => (g.name || '').trim().toLowerCase() === 'general') || null;
 
-    if (!general) {
-      this.generalGroupId = null;
-      this.channels = [];
-      this.channelId = null;
-      this.messages = [];
-      this.viewMessages = [];
-      this.activeChannelName = '';
-      return;
-    }
-
-    this.generalGroupId = String(general.id);
-
-    this.subChans?.unsubscribe();
-    this.subChans = this.storage.getChannelsByGroup(this.generalGroupId).subscribe(chs => {
-      const hadChannels = this.channels?.length > 0;
-
-      this.channels = (chs || []).map((c: any) => ({
-        ...c,
-        id: String(c.id ?? c._id),
-        groupId: String(c.groupId?.id ?? c.groupId?._id ?? c.groupId),
-      }));
-
-      if (!this.channels.length) {
-        this.storage.ensureDefaultChannel(this.generalGroupId!).subscribe(() => {
-          this.storage.getChannelsByGroup(this.generalGroupId!).subscribe(chs2 => {
-            this.channels = (chs2 || []).map((c: any) => ({
-              ...c,
-              id: String(c.id ?? c._id),
-              groupId: String(c.groupId?.id ?? c.groupId?._id ?? c.groupId),
-            }));
-            if (!this.channelId) this.setChannel(this.channels[0]?.id ?? null);
-          });
-        });
-      } else {
-        if (!hadChannels || !this.channelId) {
-          this.setChannel(this.channels[0]?.id ?? null);
-        }
+      if (!general) {
+        this.generalGroupId = null;
+        this.channels = [];
+        this.channelId = null;
+        this.messages = [];
+        this.viewMessages = [];
+        this.activeChannelName = '';
+        return;
       }
-    });
-  });
-}
 
+      this.generalGroupId = String(general.id);
+
+      this.subChans?.unsubscribe();
+      this.subChans = this.storage.getChannelsByGroup(this.generalGroupId).subscribe(chs => {
+        const hadChannels = this.channels?.length > 0;
+
+        this.channels = (chs || []).map((c: any) => ({
+          ...c,
+          id: String(c.id ?? c._id),
+          groupId: String(c.groupId?.id ?? c.groupId?._id ?? c.groupId),
+        }));
+
+        if (!this.channels.length) {
+          this.storage.ensureDefaultChannel(this.generalGroupId!).subscribe(() => {
+            this.storage.getChannelsByGroup(this.generalGroupId!).subscribe(chs2 => {
+              this.channels = (chs2 || []).map((c: any) => ({
+                ...c,
+                id: String(c.id ?? c._id),
+                groupId: String(c.groupId?.id ?? c.groupId?._id ?? c.groupId),
+              }));
+              if (!this.channelId) this.setChannel(this.channels[0]?.id ?? null);
+            });
+          });
+        } else {
+          if (!hadChannels || !this.channelId) {
+            this.setChannel(this.channels[0]?.id ?? null);
+          }
+        }
+      });
+    });
+  }
+
+  //bound to UI dropdown
   changeGeneralChannel(id: any): void {
     this.setChannel(id == null ? null : String(id));
   }
 
-
+  //switch channel
   setChannel(id: string | null) {
-  if (this.channelId === id) return;
+    if (this.channelId === id) return;
 
-  if (this.channelId) this.chat.leaveChannel(this.channelId);
-  this.subMsgs?.unsubscribe();
+    if (this.channelId) this.chat.leaveChannel(this.channelId);
+    this.subMsgs?.unsubscribe();
 
-  this.channelId = id;
+    this.channelId = id;
 
-  this.rawMessages = [];
-  this.viewMessages = [];
-  this.activeChannelName = '';
+    this.rawMessages = [];
+    this.viewMessages = [];
+    this.activeChannelName = '';
 
-  if (!id) return;
+    if (!id) return;
 
-  const ch = this.channels.find(c => String(c.id) === id);
-  this.activeChannelName = ch?.name || '';
+    const ch = this.channels.find(c => String(c.id) === id);
+    this.activeChannelName = ch?.name || '';
 
-  const me = this.user();
-  const minimalUser = me ? { id: me.id, username: me.username } : null;
-  this.chat.joinChannel(id, minimalUser);
+    const me = this.user();
+    const minimalUser = me ? { id: me.id, username: me.username } : null;
+    this.chat.joinChannel(id, minimalUser);
 
-  this.subMsgs = this.chat.messages$(id).subscribe(list => {
-    this.rawMessages = list || [];
-    this.recomputeView();
-  });
-}
+    this.subMsgs = this.chat.messages$(id).subscribe(list => {
+      this.rawMessages = list || [];
+      this.recomputeView();
+    });
+  }
+  //navigate to channel
+  goChannel(channelId: string | null): void {
+    if (!channelId || !this.generalGroupId) return;
+    this.router.navigate(['/chat', this.generalGroupId, channelId]);
+  }
 
- goChannel(channelId: string | null): void {
-  if (!channelId || !this.generalGroupId) return;
-  this.router.navigate(['/chat', this.generalGroupId, channelId]);
-}
-
-
+  //send message
   send(): void {
     const text = this.input.trim();
     if (!text || !this.channelId) return;
@@ -260,7 +288,7 @@ onImageLoad(event: Event): void {
         error: (e) => console.error('send failed', e),
       });
   }
-
+  //set profile picture to message
   private recomputeView() {
     this.viewMessages = this.rawMessages.map(m => {
       const u = this.userMap.get(m.userId);
@@ -270,13 +298,13 @@ onImageLoad(event: Event): void {
       };
     });
   }
-
+  //getter for current user
   user(): User | null { return this.auth.currentUser(); }
-
+  //check if current user can admin
   canAdminister(group: Group | null): boolean {
     return !!group && this.permissions.canAdministerGroup(this.user(), group);
   }
-
+  //navigate to group's default channel
   openGroupDefaultChannel(g: Group) {
     this.storage.getChannelsByGroup(g.id).subscribe(chs => {
       const first = chs[0]?.id;
@@ -284,7 +312,7 @@ onImageLoad(event: Event): void {
       else this.router.navigate(['/groups', g.id, 'channels']);
     });
   }
-
+  //leave socket room
   ngOnDestroy(): void {
     if (this.channelId) this.chat.leaveChannel(this.channelId);
     this.subMe?.unsubscribe();

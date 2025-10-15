@@ -2,14 +2,14 @@
   <div class="left">
     <p>Chat System</p>
 
+    <!-- Navigation Bar -->
     <a routerLink="/menu" routerLinkActive="active" [routerLinkActiveOptions]="{ exact: true }">Menu</a>
-
     <a routerLink="/groups" routerLinkActive="active">Groups</a>
-
     <a routerLink="/users" routerLinkActive="active">Account</a>
   </div>
 
   <div class="right">
+    <!-- User Name and Role in Nav Bar -->
     <span class="user-display">
       {{ user.username }} - <small>{{ user.role.replace('_', ' ') }}</small>
     </span>    

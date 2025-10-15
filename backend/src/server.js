@@ -1,5 +1,8 @@
+//Build server function
 async function buildServer() {
+  //load variables from env file
   require('dotenv').config();
+  //Imports
   const express = require('express');
   const cors = require('cors');
   const { connectDB, ensureCollections } = require('./db/init');
@@ -7,37 +10,46 @@ async function buildServer() {
   const http = require('http');
   const { Server } = require('socket.io');
   const { runSeed } = require('./seed');
+  //Turn given 'Ids' into MongoId, then return ObjectId and string version
+  const bothIds = (raw) => {
+    const oid = asId(String(raw || ''));
+    return oid ? [oid, oid.toHexString()] : [String(raw || '')];
+  };
+  //MongoDB id filter
+  const idFilter = (raw) => {
+    const arr = bothIds(raw).filter(Boolean);
+    return arr.length > 1 ? { _id: { $in: arr } } : { _id: arr[0] };
+  };
+  //filter for ids not equal to current id
+  const notSelfById = (raw) => ({ _id: { $nin: bothIds(raw).filter(Boolean) } });
+  //Convert id to hex string
+  const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._id ?? ''));
 
-const bothIds = (raw) => {
-  const oid = asId(String(raw || ''));
-  return oid ? [oid, oid.toHexString()] : [String(raw || '')];
-};
-const idFilter = (raw) => {
-  const arr = bothIds(raw).filter(Boolean);
-  return arr.length > 1 ? { _id: { $in: arr } } : { _id: arr[0] };
-};
-const notSelfById = (raw) => ({ _id: { $nin: bothIds(raw).filter(Boolean) } });
-const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._id ?? ''));
-
-
+  //create express app and allow req from ang dev server
   const app = express();
   app.use(cors({ origin: 'http://localhost:4200' }));
 
+  //Make UI fetch fresh data
   app.use('/api', (req, res, next) => {
     res.set('Cache-Control', 'no-cache');
     next();
   });
 
+  //imports for image upload
   const path = require('path');
   const fs = require('fs');
 
+  //Set uploads folder 
   const uploadsDir = path.join(__dirname, 'uploads');
   fs.mkdirSync(uploadsDir, { recursive: true });
   app.use('/uploads', express.static(uploadsDir));
   app.use(express.json({ limit: '6mb' }));
   app.use((req, _res, next) => { console.log(`${req.method} ${req.url}`); next(); });
 
+  //create Http server
   const server = http.createServer(app);
+
+  //Intiliase socket.io cors
   const io = new Server(server, {
     cors: {
       origin: 'http://localhost:4200',
@@ -45,34 +57,42 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     },
   });
 
+  //convert id to hex
   const toHex = (x) => (x?.toHexString?.() ?? String(x || ''));
 
-
+  //Connect to Db, ensure collections and promotion req array exist
   const db = await connectDB();
   await ensureCollections(db);
   await ensurePromoteRequestsArray(db);
 
+  //Seeding on start up
   if (process.env.SEED_ON_START === 'true') {
     await runSeed();
   }
 
+  //collection handles
   const users = db.collection('users');
   const groups = db.collection('groups');
   const channels = db.collection('channels');
   const messages = db.collection('messages');
   const bans = db.collection('bans');
 
+  //ensure can't create duplicate bans
   await bans.createIndex({ channelId: 1, userId: 1 }, { unique: true }).catch(() => { });
 
+  //New websocket connection
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
 
+    //Chat join
     socket.on('chat:join', async ({ channelId, user }) => {
+      //Convert channelID and UserID into mongo Objectids
       try {
         const cId = asId(channelId);
         const uId = asId(user?.id);
         if (!cId) return;
 
+        //If user banned, socket deny join
         if (uId) {
           const isBanned = await bans.findOne({ channelId: cId, userId: uId });
           if (isBanned) {
@@ -80,12 +100,13 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
             return;
           }
         }
-
+        //Build room per channel, leave previous rooms and join current
         const room = `channel:${String(channelId)}`;
         for (const r of socket.rooms) if (r.startsWith('channel:')) socket.leave(r);
         socket.join(room);
         socket.data.user = user || null;
 
+        //Notify user join room
         socket.to(room).emit('presence:join', {
           channelId,
           user: user ? { id: user.id, username: user.username } : null,
@@ -98,7 +119,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
       }
     });
 
-
+    //Handle chat leave
     socket.on('chat:leave', ({ channelId }) => {
       try {
         const room = `channel:${String(channelId)}`;
@@ -113,6 +134,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
       }
     });
 
+    //Update user presence in channel (disconnect)
     socket.on('disconnecting', () => {
       for (const r of socket.rooms) {
         if (r.startsWith('channel:')) {
@@ -128,7 +150,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     socket.on('disconnect', () => console.log('Client disconnected:', socket.id));
   });
 
-
+  //upload avatar
   app.post('/api/users/:id/avatar-data', async (req, res) => {
     try {
       const { ObjectId } = require('mongodb');
@@ -151,7 +173,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
         return res.status(404).json({ error: 'user_not_found' });
       }
 
-
+      //update avatar
       io.emit('users:update');
       return res.json({ avatarUrl: dataUrl });
     } catch (err) {
@@ -160,42 +182,50 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   });
 
+  //create groups
   app.post('/api/groups', async (req, res) => {
-  try {
-    const { name, ownerId, adminIds = [], memberIds = [] } = req.body || {};
-    const owner = asId(ownerId);
-    if (!isNonEmptyString(name) || !owner) {
-      return res.status(400).json({ error: 'name_and_ownerId_required' });
+    try {
+      const { name, ownerId, adminIds = [], memberIds = [] } = req.body || {};
+      const owner = asId(ownerId);
+      if (!isNonEmptyString(name) || !owner) {
+        return res.status(400).json({ error: 'name_and_ownerId_required' });
+      }
+
+      //build memberIds, normalise to strings
+      const membersSet = new Set([owner, ...memberIds.map(asId).filter(Boolean)].map(String));
+
+      //Group document
+      const doc = {
+        name: name.trim(),
+        ownerId: owner,
+        adminIds: adminIds.map(asId).filter(Boolean),
+        memberIds: Array.from(membersSet).map(asId),
+        promoteRequests: [],
+        createdAt: new Date(),
+      };
+
+      //Insert group and link to owner groups array
+      const result = await groups.insertOne(doc);
+      await users.updateOne({ _id: owner }, { $addToSet: { groups: result.insertedId } });
+
+      //update changes
+      io.emit('users:update');
+      io.emit('groups:update');
+
+      //return new group
+      const idStr = result.insertedId.toHexString();
+      return res.status(201).json({ ...doc, id: idStr, _id: idStr });
+    } catch (e) {
+      if (e?.code === 11000) return res.status(409).json({ error: 'group_name_taken' });
+      console.error('POST /api/groups error:', e);
+      return res.status(500).json({ error: 'server_error' });
     }
+  });
 
-    const membersSet = new Set([owner, ...memberIds.map(asId).filter(Boolean)].map(String));
-
-    const doc = {
-      name: name.trim(),
-      ownerId: owner,
-      adminIds: adminIds.map(asId).filter(Boolean),
-      memberIds: Array.from(membersSet).map(asId),
-      promoteRequests: [],
-      createdAt: new Date(),
-    };
-
-    const result = await groups.insertOne(doc);
-    await users.updateOne({ _id: owner }, { $addToSet: { groups: result.insertedId } });
-
-    io.emit('users:update');
-    io.emit('groups:update');
-
-    const idStr = result.insertedId.toHexString();
-    return res.status(201).json({ ...doc, id: idStr, _id: idStr });
-  } catch (e) {
-    if (e?.code === 11000) return res.status(409).json({ error: 'group_name_taken' });
-    console.error('POST /api/groups error:', e);
-    return res.status(500).json({ error: 'server_error' });
-  }
-});
-
+  //Ban user from channel
   app.post('/api/channels/:channelId/bans', async (req, res) => {
     try {
+      //validate id
       const cId = asId(String(req.params.channelId || ''));
       const uId = asId(String(req.body.userId || ''));
       const bannedBy = asId(String(req.body.bannedBy || ''));
@@ -203,18 +233,19 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
       if (!cId || !uId || !bannedBy || !reason) {
         return res.status(400).json({ error: 'invalid_payload' });
       }
-
+      //fetch channel, group, banned user and actor
       const [ch, grp, target, actor] = await Promise.all([
         channels.findOne({ _id: cId }, { projection: { name: 1, groupId: 1 } }),
         channels.findOne({ _id: cId }).then(ch => ch ? groups.findOne({ _id: ch.groupId }, { projection: { name: 1 } }) : null),
         users.findOne({ _id: uId }, { projection: { username: 1 } }),
         users.findOne({ _id: bannedBy }, { projection: { username: 1, role: 1 } }),
       ]);
+      //check they exist
       if (!ch) return res.status(404).json({ error: 'channel_not_found' });
       if (!grp) return res.status(404).json({ error: 'group_not_found' });
       if (!target) return res.status(404).json({ error: 'target_not_found' });
       if (!actor) return res.status(404).json({ error: 'actor_not_found' });
-
+      //Ban rules
       const targetRole = (target.role || '').toUpperCase?.() || '';
       const actorRole = (actor.role || '').toUpperCase?.() || '';
       if (String(uId) === String(bannedBy)) return res.status(403).json({ error: 'cannot_ban_self' });
@@ -223,6 +254,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
         return res.status(403).json({ error: 'only_super_can_ban_group_admin' });
       }
 
+      //Ban documentation
       await bans.updateOne(
         { channelId: cId, userId: uId },
         {
@@ -242,9 +274,10 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
         { upsert: true }
       );
 
+      //remove user from channel
       await channels.updateOne({ _id: cId }, { $pull: { memberIds: { $in: [uId, toHex(uId)] } } }).catch(() => { });
       await ejectUserFromChannel(io, cId, uId);
-
+      //Update removal
       io.emit('channels:update');
       return res.json({ ok: true });
     } catch (e) {
@@ -254,10 +287,10 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   });
 
-
+  //Promote Requests
   async function ensurePromoteRequestsArray(db) {
     const groups = db.collection('groups');
-
+    //Ensure fields exist
     const r1 = await groups.updateMany(
       { promoteRequests: { $exists: false } },
       { $set: { promoteRequests: [] } }
@@ -269,6 +302,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     );
   }
 
+  //User Authentication
   app.post('/api/auth/login', async (req, res) => {
     try {
       const { username, password } = req.body;
@@ -292,6 +326,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   });
 
+  //Kick user from channel
   async function ejectUserFromChannel(io, channelId, userId) {
     const room = `channel:${toHex(channelId)}`;
     for (const [sid, socket] of io.sockets.sockets) {
@@ -308,11 +343,12 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   }
 
-
+  //Server health check
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, db: db.databaseName, ts: Date.now() });
   });
 
+  //Get users and normalise ids
   app.get('/api/users', async (_req, res) => {
     try {
       const list = await users.find({}).toArray();
@@ -328,13 +364,14 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   });
 
+  //Create user
   app.post('/api/users', async (req, res) => {
     try {
       const { username, email, password = '123', role = 'USER', groups: groupIds = [] } = req.body;
       if (!isNonEmptyString(username) || !isNonEmptyString(email)) {
         return res.status(400).json({ error: 'missing_username_or_email' });
       }
-
+      //Insert user
       const doc = {
         username: username.trim(),
         email: email.trim(),
@@ -343,25 +380,23 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
         groups: groupIds.map(asId).filter(Boolean),
         createdAt: new Date(),
       };
-
+      //Add new users to general group
       const result = await users.insertOne(doc);
       const idStr = result.insertedId.toHexString();
-
       const newUserId = result.insertedId;
-
       const general = await groups.findOne({ name: { $regex: /^general$/i } });
       if (general) {
         await groups.updateOne(
           { _id: general._id },
           { $addToSet: { memberIds: newUserId } }
         );
-
         await users.updateOne(
           { _id: newUserId },
           { $addToSet: { groups: general._id } }
         );
       }
 
+      //Update users
       io.emit('users:update');
       return res.status(201).json({
         ...doc,
@@ -377,7 +412,7 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   });
 
-
+  //Get Ban reports
   app.get('/api/admin/ban-reports', async (_req, res) => {
     try {
       const rows = await bans.aggregate([
@@ -414,51 +449,52 @@ const toIdStr = (x) => (x?._id?.toHexString ? x._id.toHexString() : String(x?._i
     }
   });
 
-app.patch('/api/users/:id', async (req, res) => {
-  try {
-    const { ObjectId } = require('mongodb');
-    const raw = String(req.params.id || '');
-    const isHex = /^[0-9a-fA-F]{24}$/.test(raw);
-    const oid = isHex ? new ObjectId(raw) : null;
+  //Find user by id, normalise and update fields
+  app.patch('/api/users/:id', async (req, res) => {
+    try {
+      const { ObjectId } = require('mongodb');
+      const raw = String(req.params.id || '');
+      const isHex = /^[0-9a-fA-F]{24}$/.test(raw);
+      const oid = isHex ? new ObjectId(raw) : null;
 
-    const { role, email, username } = req.body || {};
-    const update = {};
-    if (role) update.role = String(role).toUpperCase();
-    if (email) update.email = String(email).trim().toLowerCase();
-    if (username) update.username = String(username).trim();
-    if (!Object.keys(update).length) return res.status(400).json({ error: 'no_fields_to_update' });
+      const { role, email, username } = req.body || {};
+      const update = {};
+      if (role) update.role = String(role).toUpperCase();
+      if (email) update.email = String(email).trim().toLowerCase();
+      if (username) update.username = String(username).trim();
+      if (!Object.keys(update).length) return res.status(400).json({ error: 'no_fields_to_update' });
 
-    let matched = 0;
-    if (oid) {
-      const r1 = await users.updateOne({ _id: oid }, { $set: update });
-      matched = r1.matchedCount;
+      let matched = 0;
+      if (oid) {
+        const r1 = await users.updateOne({ _id: oid }, { $set: update });
+        matched = r1.matchedCount;
+      }
+
+      if (!matched) {
+        const r2 = await users.updateOne({ _id: raw }, { $set: update });
+        matched = r2.matchedCount;
+      }
+
+      if (!matched) return res.status(404).json({ error: 'user_not_found' });
+
+      const u = await users.findOne({
+        $or: [
+          ...(oid ? [{ _id: oid }, { $expr: { $eq: [{ $toString: '$_id' }, raw] } }] : []),
+          { _id: raw },
+        ],
+      });
+      if (!u) return res.status(404).json({ error: 'user_not_found' });
+
+      const idStr = u._id?.toHexString ? u._id.toHexString() : String(u._id);
+      return res.json({ ...u, id: idStr, _id: idStr });
+    } catch (e) {
+      if (e?.code === 11000) return res.status(409).json({ error: 'username_or_email_taken' });
+      console.error('PATCH /api/users error:', e);
+      return res.status(500).json({ error: 'server_error' });
     }
+  });
 
-    if (!matched) {
-      const r2 = await users.updateOne({ _id: raw }, { $set: update });
-      matched = r2.matchedCount;
-    }
-
-    if (!matched) return res.status(404).json({ error: 'user_not_found' });
-
-    const u = await users.findOne({
-      $or: [
-        ...(oid ? [{ _id: oid }, { $expr: { $eq: [{ $toString: '$_id' }, raw] } }] : []),
-        { _id: raw },
-      ],
-    });
-    if (!u) return res.status(404).json({ error: 'user_not_found' });
-
-    const idStr = u._id?.toHexString ? u._id.toHexString() : String(u._id);
-    return res.json({ ...u, id: idStr, _id: idStr });
-  } catch (e) {
-    if (e?.code === 11000) return res.status(409).json({ error: 'username_or_email_taken' });
-    console.error('PATCH /api/users error:', e);
-    return res.status(500).json({ error: 'server_error' });
-  }
-});
-
-
+  //delete user
   app.delete('/api/users/:id', async (req, res) => {
     const id = asId(req.params.id);
     if (!id) return res.status(400).json({ error: 'invalid_userId' });
@@ -466,7 +502,7 @@ app.patch('/api/users/:id', async (req, res) => {
     res.json({ ok: true });
   });
 
-
+  //retrieve user's groups
   app.get('/api/users/:userId/groups', async (req, res) => {
     try {
       const uId = asId(String(req.params.userId || ''));
@@ -528,14 +564,14 @@ app.patch('/api/users/:id', async (req, res) => {
     }
   });
 
-
+  //fetch all groups
   app.get('/api/groups', async (_req, res) => {
     try {
       const list = await groups.find().toArray();
-       const out = list.map(g => {
-      const idStr = g._id?.toHexString ? g._id.toHexString() : String(g._id);
-      return { ...g, id: idStr, _id: idStr };
-    });
+      const out = list.map(g => {
+        const idStr = g._id?.toHexString ? g._id.toHexString() : String(g._id);
+        return { ...g, id: idStr, _id: idStr };
+      });
       return res.json(out);
     } catch (e) {
       console.error('GET /api/groups error:', e);
@@ -543,7 +579,7 @@ app.patch('/api/users/:id', async (req, res) => {
     }
   });
 
-
+  //ensure super admin is in every group
   app.post('/api/admin/fix/supers-in-groups', async (_req, res) => {
     try {
       const supers = await users.find({ role: 'SUPER_ADMIN' }, { projection: { _id: 1 } }).toArray();
@@ -563,57 +599,59 @@ app.patch('/api/users/:id', async (req, res) => {
       res.status(500).json({ error: 'server_error' });
     }
   });
-app.patch('/api/groups/:groupId', async (req, res) => {
-  console.log('PATCH /api/groups/:groupId called', req.params, req.body);
-  try {
-    const { ObjectId } = require('mongodb');
-    const raw = String(req.params.groupId || '');
-    const isHex = /^[0-9a-fA-F]{24}$/.test(raw);
-    const oid = isHex ? new ObjectId(raw) : null;
 
-    const { name } = req.body || {};
-    if (!isNonEmptyString(name)) return res.status(400).json({ error: 'invalid_input' });
-    const trimmedName = name.trim();
+  //check group name doesn't exist already, update name
+  app.patch('/api/groups/:groupId', async (req, res) => {
+    console.log('PATCH /api/groups/:groupId called', req.params, req.body);
+    try {
+      const { ObjectId } = require('mongodb');
+      const raw = String(req.params.groupId || '');
+      const isHex = /^[0-9a-fA-F]{24}$/.test(raw);
+      const oid = isHex ? new ObjectId(raw) : null;
 
-    const clash = await groups.findOne({
-      name: trimmedName,
-      $nor: [
-        ...(oid ? [{ _id: oid }, { $expr: { $eq: [{ $toString: '$_id' }, raw] } }] : []),
-        { _id: raw },
-      ],
-    });
-    if (clash) return res.status(409).json({ error: 'group_name_taken' });
+      const { name } = req.body || {};
+      if (!isNonEmptyString(name)) return res.status(400).json({ error: 'invalid_input' });
+      const trimmedName = name.trim();
 
-    let matched = 0;
-    if (oid) {
-      const r1 = await groups.updateOne({ _id: oid }, { $set: { name: trimmedName } });
-      matched = r1.matchedCount;
+      const clash = await groups.findOne({
+        name: trimmedName,
+        $nor: [
+          ...(oid ? [{ _id: oid }, { $expr: { $eq: [{ $toString: '$_id' }, raw] } }] : []),
+          { _id: raw },
+        ],
+      });
+      if (clash) return res.status(409).json({ error: 'group_name_taken' });
+
+      let matched = 0;
+      if (oid) {
+        const r1 = await groups.updateOne({ _id: oid }, { $set: { name: trimmedName } });
+        matched = r1.matchedCount;
+      }
+
+      if (!matched) {
+        const r2 = await groups.updateOne({ _id: raw }, { $set: { name: trimmedName } });
+        matched = r2.matchedCount;
+      }
+
+      if (!matched) return res.status(404).json({ error: 'group_not_found' });
+
+      const doc = await groups.findOne({
+        $or: [
+          ...(oid ? [{ _id: oid }, { $expr: { $eq: [{ $toString: '$_id' }, raw] } }] : []),
+          { _id: raw },
+        ],
+      });
+      if (!doc) return res.status(404).json({ error: 'group_not_found' });
+
+      io.emit('groups:update');
+      return res.json(doc);
+    } catch (err) {
+      console.error('Rename group error:', err);
+      return res.status(500).json({ error: 'server_error', detail: err.message });
     }
+  });
 
-    if (!matched) {
-      const r2 = await groups.updateOne({ _id: raw }, { $set: { name: trimmedName } });
-      matched = r2.matchedCount;
-    }
-
-    if (!matched) return res.status(404).json({ error: 'group_not_found' });
-
-    const doc = await groups.findOne({
-      $or: [
-        ...(oid ? [{ _id: oid }, { $expr: { $eq: [{ $toString: '$_id' }, raw] } }] : []),
-        { _id: raw },
-      ],
-    });
-    if (!doc) return res.status(404).json({ error: 'group_not_found' });
-
-    io.emit('groups:update');
-    return res.json(doc);
-  } catch (err) {
-    console.error('Rename group error:', err);
-    return res.status(500).json({ error: 'server_error', detail: err.message });
-  }
-});
-
-
+  //delete group, channels and messages in group 
   app.delete('/api/groups/:groupId', async (req, res) => {
     const gId = asId(req.params.groupId);
     if (!gId) return res.status(400).json({ error: 'invalid_group_Id' });
@@ -625,6 +663,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     res.json({ ok: true });
   });
 
+  //add user to group
   app.post('/api/groups/:groupId/members', async (req, res) => {
     try {
       const gId = asId(String(req.params.groupId || ''));
@@ -657,6 +696,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //find all users that can be promoted
   app.get('/api/groups/:groupId/promotable', async (req, res) => {
     try {
       const gId = asId(String(req.params.groupId || ''));
@@ -688,6 +728,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //ensure group owners are in group members
   app.post('/api/admin/fix/owner-membership', async (_req, res) => {
     try {
 
@@ -741,6 +782,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //remove user from group 
   app.delete('/api/groups/:groupId/members/:userId', async (req, res) => {
     try {
       const gId = asId(String(req.params.groupId || ''));
@@ -796,8 +838,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
-
+  //add promoted users to adminIds
   app.post('/api/groups/:groupId/admins', async (req, res) => {
     const gId = asId(req.params.groupId);
     const uId = asId(req.body.userId);
@@ -806,8 +847,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     res.json({ ok: true });
   });
 
-
-
+  //Get all channels belonging to group
   app.get('/api/groups/:groupId/channels', async (req, res) => {
     try {
       const gId = asId(req.params.groupId);
@@ -821,7 +861,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
+  //Create channel
   app.post('/api/groups/:groupId/channels', async (req, res) => {
     try {
       const gId = asId(req.params.groupId);
@@ -852,7 +892,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
+  //Add user to promotion request
   app.post('/api/groups/:groupId/promotion-requests', async (req, res) => {
     try {
       const gId = asId(req.params.groupId);
@@ -901,8 +941,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
-
+  //Read promotion request
   app.get('/api/groups/:groupId/promotion-requests', async (req, res) => {
     try {
       const gId = asId(req.params.groupId);
@@ -923,13 +962,12 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
+  //Promote user to admin
   app.post('/api/groups/:groupId/promotion-requests/:userId/approve', async (req, res) => {
     try {
       const gId = asId(req.params.groupId);
       const uId = asId(req.params.userId);
       if (!gId || !uId) return res.status(400).json({ error: 'invalid_ids' });
-
 
       await groups.updateOne(
         { _id: gId },
@@ -949,7 +987,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
+  //Remove promotion request
   app.post('/api/groups/:groupId/promotion-requests/:userId/reject', async (req, res) => {
     try {
       const gId = asId(req.params.groupId);
@@ -968,8 +1006,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
-
+  //Save promotion request
   app.post('/api/users/:userId/request-promotion', async (req, res) => {
     try {
       const uId = asId(req.params.userId);
@@ -986,6 +1023,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //Set role and clear request
   app.post('/api/users/:userId/promote', async (req, res) => {
     try {
       const uId = asId(req.params.userId);
@@ -1003,8 +1041,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
-
-
+  //Promote to super
   app.post('/api/users/:userId/super', async (req, res) => {
     try {
       const uId = asId(req.params.userId);
@@ -1022,10 +1059,12 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //fetch all channels
   app.get('/api/channels', async (_req, res) => {
     res.json(await channels.find().toArray());
   });
 
+  //create channel
   app.post('/api/channels', async (req, res) => {
     try {
       const { groupId, name, isGlobal = false } = req.body;
@@ -1049,6 +1088,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //delete channel
   app.delete('/api/channels/:id', async (req, res) => {
     const id = asId(req.params.id);
     if (!id) return res.status(400).json({ error: 'invalid_channelId' });
@@ -1058,7 +1098,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     res.json({ ok: true });
   });
 
-
+  //fetch messages
   app.get('/api/channels/:channelId/messages', async (req, res) => {
     try {
       const channelId = asId(req.params.channelId);
@@ -1086,6 +1126,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //send message
   app.post('/api/channels/:channelId/messages', async (req, res) => {
     try {
       const channelId = asId(req.params.channelId);
@@ -1141,6 +1182,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //list channel bans
   app.get('/api/channels/:channelId/bans', async (req, res) => {
     try {
       const raw = String(req.params.channelId || '');
@@ -1168,6 +1210,7 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //remove ban
   app.delete('/api/channels/:channelId/bans/:userId', async (req, res) => {
     try {
       const cId = asId(String(req.params.channelId || ''));
@@ -1184,9 +1227,9 @@ app.patch('/api/groups/:groupId', async (req, res) => {
     }
   });
 
+  //startup
   return { app, server, io, db };
 }
-
 const port = Number(process.env.PORT) || 3000;
 
 async function start() {

@@ -5,10 +5,12 @@
 <ng-container *ngIf="current as u">
   <div class="account-card">
     <div class="profile-section">
+      <!-- Profile Picture Displau -->
       <img
         [src]="u.avatarUrl || '../assets/default-avatar.png'"
         class="profile-img"
       />
+      <!-- Profile picture Upload  -->
       <div class="upload-box">
         <label for="profileUpload" class="upload-label">Change Picture</label>
         <input
@@ -19,11 +21,13 @@
         />
       </div>
     </div>
+    <!-- User Details -->
     <div class="row"><strong>Username:</strong> {{ u.username }}</div>
     <div class="row"><strong>Email:</strong> {{ u.email }}</div>
     <div class="row"><strong>Role:</strong> {{ u.role }}</div>
     <div class="row"><strong>User ID:</strong> {{ u.id }}</div>
 
+    <!-- Account Delete Button -->
     <div class="actions">
     <button (click)="deleteMe(u)" class="btn danger-btn">Delete my Account</button>
     </div>

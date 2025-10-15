@@ -2,6 +2,7 @@
   Chat System
 </header>
 
+<!-- Login Fields -->
 <h2>Login</h2>
 
 <form (ngSubmit)="submit()">
@@ -15,6 +16,7 @@
     <input [(ngModel)]="password" name="password" type="password" required>
   </label>
 
+  <!-- Login Submit Button -->
   <div class="button-container">
   <button type="submit">Login</button>
   </div>
@@ -23,6 +25,7 @@
 <p *ngIf="error">{{ error }}</p>
 
 <div class="button-container">
+<!-- User Registration Button -->
 <button routerLink="/register" class="register-btn">
   Create account
 </button>

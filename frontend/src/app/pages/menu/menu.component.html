@@ -1,6 +1,7 @@
 <h1 class="app-title">Chat System</h1>
 
 <section class="chat-shell" id="chat">
+  <!-- Chat & Channel Name (General) -->
   <header class="chat-header">
     General /
     <select [ngModel]="channelId" (ngModelChange)="setChannel($event)" class="channel-select">
@@ -8,10 +9,10 @@
         {{ c.name }}
       </option>
     </select>
-
     Chat
   </header>
 
+  <!-- Message Display -->
   <div class="chat-body">
     <div *ngIf="viewMessages.length === 0" class="chat-empty">
       No messages yet.
@@ -19,11 +20,13 @@
 
     <div *ngFor="let m of viewMessages; trackBy: trackByMessageId">
       <div class="chat-message">
+        <!-- User Profile Image -->
         <img class="chat-avatar" [src]="m.avatarUrl || '../assets/default-avatar.png'" alt="Avatar" />
         <div class="chat-row">
           <span class="chat-author">{{ m.username }}</span>
           <span class="chat-text">{{ m.text }}</span>
           <div class="chat-image-line">
+          <!-- Message Image Display -->
           <img [src]="m.imageUrl" class="chat-image" (load)="onImageLoad($event)" />
           </div>
           <span class="chat-when"> {{ m.timestamp | date:'d MMMM y, h:mm a' }}
@@ -34,15 +37,17 @@
   </div>
 
   <form class="chat-form" (submit)="$event.preventDefault(); send();">
+    <!-- Chat Input Field -->
     <input name="chatInput" [(ngModel)]="input" placeholder="Message…" class="chat-input" autocomplete="off" />
+    <!-- Image Selector -->
     <input type="file" accept="image/*" #imagePicker hidden (change)="pickImage($event)" />
-
     <button type="button" class="chat-send" (click)="imagePicker.click()" title="Send image">📸</button>
-
+    <!-- Message Send Button -->
     <button type="submit" class="chat-send">Send</button>
   </form>
 </section>
 
+<!-- My Groups -->
 <h2>My Groups</h2>
 
 <section class="groups" *ngIf="myGroups as myGroups">
@@ -55,6 +60,7 @@
       <li *ngIf="!isGeneralGroup(g)" class="group-item">
         <strong class="group-name">{{ g.name }}</strong>
         <div class="group-actions">
+          <!-- Open Group Chat Button -->
           <button (click)="openGroupDefaultChannel(g)" class="btn-primary">
             Open group chat
           </button>

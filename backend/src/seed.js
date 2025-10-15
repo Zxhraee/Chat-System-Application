@@ -1,11 +1,11 @@
-
+//load variables from env file, MongoDB imports, Seed Force import
 require('dotenv').config();
 const { MongoClient, ObjectId } = require('mongodb');
-
 const uri = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
 const dbName = process.env.MONGODB_DB || 'chatdb';
 const FORCE = (process.env.SEED_FORCE || '').toLowerCase() === 'true';
 
+//Users Seed
 const usersSeed = [
   { id: 'U1', username: 'Super', email: 'superuser@gmail.com', password: '123', role: 'SUPER_ADMIN', groups: ['G1', 'G2', 'G3'] },
   { id: 'U2', username: 'Zahra', email: 'zahraanamkhan@gmail.com', password: '123', role: 'USER', groups: ['G1', 'G2'] },
@@ -13,6 +13,7 @@ const usersSeed = [
   { id: 'U4', username: 'Student', email: 'anam.khan@griffithuni.edu.au', password: '123', role: 'USER', groups: ['G1', 'G3', 'G4'] },
 ];
 
+//Groups Seed
 const groupsSeed = [
   { id: 'G1', name: 'General', adminIds: ['U1'], createdBy: 'U1', channelId: ['C1', 'C2'] },
   { id: 'G2', name: 'Mathematics', adminIds: ['U3', 'U1'], createdBy: 'U1', channelId: ['C3', 'C4'] },
@@ -20,6 +21,7 @@ const groupsSeed = [
   { id: 'G4', name: 'English', adminIds: ['U1', 'U2'], createdBy: 'U1', channelId: ['C8', 'C9'] },
 ];
 
+//Channels Seed
 const channelsSeed = [
   { id: 'C1', groupId: 'G1', name: 'Main', memberId: usersSeed.map(u => u.id) },
   { id: 'C2', groupId: 'G1', name: 'Help', memberId: usersSeed.map(u => u.id) },
@@ -33,18 +35,19 @@ const channelsSeed = [
   { id: 'C10', groupId: 'G4', name: 'Vocabulary', memberId: ['U1', 'U3', 'U2', 'U4'] },
 ];
 
+//Seeding function
 async function runSeed() {
   const client = new MongoClient(uri);
   await client.connect();
   const db = client.db(dbName);
 
+  //collection short cuts
   try {
     const colUsers = db.collection('users');
     const colGroups = db.collection('groups');
     const colChannels = db.collection('channels');
 
-
-
+    //Create indexes
     await Promise.all([
       colUsers.createIndex({ username: 1 }, { unique: true, name: 'users_username_unique' }),
       colUsers.createIndex({ email: 1 }, { unique: true, name: 'users_email_unique' }),
@@ -52,9 +55,7 @@ async function runSeed() {
       colChannels.createIndex({ groupId: 1, name: 1 }, { name: 'idx_channel_group_name' }),
     ]);
 
-
-
-
+    //If force true, wipe all existing data
     if (FORCE) {
       await Promise.all([
         colUsers.deleteMany({}),
@@ -64,7 +65,7 @@ async function runSeed() {
       console.log('Collections cleared due to SEED_FORCE=true');
     }
 
-
+    //if data and no force then skip seed
     const [uCount, gCount, cCount] = await Promise.all([
       colUsers.countDocuments(),
       colGroups.countDocuments(),
@@ -75,7 +76,7 @@ async function runSeed() {
       return;
     }
 
-
+    //map fake ids to Objectid 
     const userIdMap = new Map();
     const groupIdMap = new Map();
     const channelIdMap = new Map();
@@ -85,6 +86,7 @@ async function runSeed() {
     channelsSeed.forEach(c => channelIdMap.set(c.id, new ObjectId()));
 
 
+    //build user documents 
     const usersDocs = usersSeed.map(u => ({
       _id: userIdMap.get(u.id),
       username: u.username,
@@ -95,6 +97,7 @@ async function runSeed() {
       createdAt: new Date(),
     }));
 
+    //build group documents
     const groupsDocs = groupsSeed.map(g => ({
       _id: groupIdMap.get(g.id),
       name: g.name,
@@ -104,6 +107,7 @@ async function runSeed() {
       createdAt: new Date(),
     }));
 
+    //build channel documents
     const channelsDocs = channelsSeed.map(c => ({
       _id: channelIdMap.get(c.id),
       groupId: groupIdMap.get(c.groupId),
@@ -112,12 +116,14 @@ async function runSeed() {
       createdAt: new Date(),
     }));
 
+    //collect all members for a group
     const groupMembers = new Map([...groupIdMap.values()].map(gid => [gid.toHexString(), new Set()]));
     for (const ch of channelsDocs) {
       const set = groupMembers.get(ch.groupId.toHexString());
       ch.memberIds.forEach(oid => set.add(oid.toHexString()));
     }
 
+    //add owner and admin to group members
     for (const g of groupsDocs) {
       const set = groupMembers.get(g._id.toHexString()) || new Set();
       set.add(g.ownerId.toHexString());
@@ -125,6 +131,7 @@ async function runSeed() {
       g.memberIds = [...set].map(hex => new ObjectId(hex));
     }
 
+    //insert values into MongoDB
     await colUsers.insertMany(usersDocs, { ordered: false });
     await colGroups.insertMany(groupsDocs, { ordered: false });
     await colChannels.insertMany(channelsDocs, { ordered: false });
@@ -135,6 +142,7 @@ async function runSeed() {
   }
 }
 
+//seeding fail error
 if (require.main === module) {
   runSeed().catch(err => {
     console.error('Seed failed:', err);
@@ -142,4 +150,5 @@ if (require.main === module) {
   });
 }
 
+//run seed export
 module.exports = { runSeed };

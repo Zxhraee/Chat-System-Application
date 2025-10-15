@@ -5,6 +5,7 @@ import { Message } from '../models/message';
 
 export type ServerId = string;
 
+//Server Side User, Group, Channel Message Shape
 export type SUser = {
   _id: ServerId;
   username: string;
@@ -41,6 +42,7 @@ export type SMessage = {
   createdAt: string;   
 };
 
+//Normalise server object to client object
 export const mapUser = (s: SUser): User => ({
   id: s._id, 
   username: s.username,

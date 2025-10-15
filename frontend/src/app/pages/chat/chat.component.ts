@@ -25,24 +25,22 @@ export class ChatComponent implements OnInit, OnDestroy {
   private rawMessages: Message[] = [];
   private userMap = new Map<string, User>();
   viewMessages: Message[] = [];
-
   activeGroup: Group | null = null;
   activeChannelName = '';
   channels: Channel[] = [];
-
+  isBannedFromChannel = false;
   groupId = '';
   channelId = '';
 
+  //Subscriptions
   private subRoute?: Subscription;
   private subGroup?: Subscription;
   private subChans?: Subscription;
   private subMe?: Subscription;
   private subUsers?: Subscription;
   private subMsgs?: Subscription;
-  isBannedFromChannel = false;
   private subDenied?: Subscription;
   private subJoinedEvt?: Subscription;
-
 
   constructor(
     private route: ActivatedRoute,
@@ -52,18 +50,22 @@ export class ChatComponent implements OnInit, OnDestroy {
   ) { }
 
   ngOnInit(): void {
+    //Current user Stream
     this.subMe = this.store.getCurrentUser().subscribe(u => (this.me = u));
 
+    //Users Live Cache
     this.subUsers = this.store.getUsers().subscribe(users => {
       this.userMap = new Map(users.map(u => [u.id, u]));
       this.recomputeView();
 
+      //Channel Bans Listen
       this.subDenied = this.chat.denied$.subscribe(ev => {
         if (ev && ev.channelId === this.channelId && ev.reason === 'banned') {
           this.isBannedFromChannel = true;
         }
       });
 
+      //Allow Message Sending Again
       this.subJoinedEvt = this.chat.joined$.subscribe(ev => {
         if (ev && ev.channelId === this.channelId) {
           this.isBannedFromChannel = false;
@@ -72,11 +74,12 @@ export class ChatComponent implements OnInit, OnDestroy {
 
     });
 
-
+    //Route Change 
     this.subRoute = this.route.paramMap.subscribe(() => {
       const gid = this.route.snapshot.paramMap.get('groupId')!;
       const cid = this.route.snapshot.paramMap.get('channelId');
 
+      //Set Default channel
       if (!cid) {
         this.store.ensureDefaultChannel(gid).subscribe(ch => {
           this.router.navigate(['/chat', gid, ch.id]);
@@ -86,10 +89,12 @@ export class ChatComponent implements OnInit, OnDestroy {
 
       this.groupId = gid;
 
+      //Load Group
       this.subGroup?.unsubscribe();
       this.subGroup = this.store.getGroupById(gid).subscribe(g => {
         this.activeGroup = g;
 
+        //Load Channels
         this.subChans?.unsubscribe();
         this.subChans = this.store.getChannelsByGroup(gid).subscribe(chs => {
           this.channels = chs || [];
@@ -112,6 +117,7 @@ export class ChatComponent implements OnInit, OnDestroy {
     });
   }
 
+  //Recompute Messages
   private recomputeView() {
     this.viewMessages = this.rawMessages.map(m => {
       const u = this.userMap.get(m.userId);
@@ -123,6 +129,7 @@ export class ChatComponent implements OnInit, OnDestroy {
   }
 
 
+  //Switch Channel
   private setActiveChannel(id: string) {
     if (!id) return;
 
@@ -147,10 +154,12 @@ export class ChatComponent implements OnInit, OnDestroy {
     });
   }
 
+  //Navigate to other Channel
   goChannel(id: string) {
     if (id && id !== this.channelId) this.router.navigate(['/chat', this.groupId, id]);
   }
 
+  //Send message in Channel
   send(): void {
     const text = this.input.trim();
     if (!text || !this.channelId) return;
@@ -163,6 +172,7 @@ export class ChatComponent implements OnInit, OnDestroy {
       });
   }
 
+  //Upload Image
   async pickImage(evt: Event) {
     const input = evt.target as HTMLInputElement;
     const file = (input.files && input.files[0]) || null;
@@ -177,11 +187,13 @@ export class ChatComponent implements OnInit, OnDestroy {
     }
   }
 
+  //Load Image
   onImageLoad(event: Event): void {
     const target = event.target as HTMLImageElement;
     target.classList.add('loaded');
   }
 
+  //Clean subs and Leave socket room
   ngOnDestroy(): void {
     if (this.channelId) this.chat.leaveChannel(this.channelId);
     this.subRoute?.unsubscribe();

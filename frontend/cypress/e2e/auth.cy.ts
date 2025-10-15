@@ -1,10 +1,12 @@
+//start Auth cypress test
 describe('Auth', () => {
+  //Successful login case
   it('logs in successfully', () => {
     cy.intercept('POST', '**/api/auth/login', {
       statusCode: 200,
       body: { token: 't', user: { id:'U2', username:'Zahra', role:'USER' } }
     }).as('login');
-
+    //exercise login UI
     cy.visit('/login');
     cy.get('input[name="username"]').type('zahra');
     cy.get('input[name="password"]').type('pass{enter}');

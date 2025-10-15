@@ -1,5 +1,7 @@
+  <!-- Page Title -->
 <h2 class="page-title">My Groups</h2>
 
+<!-- Create Group button -->
 <section *ngIf="canCreateGroup()" class="section narrow">
   <h3 class="section-title">Create group</h3>
   <form (ngSubmit)="createGroup()" class="create-form">
@@ -8,6 +10,7 @@
   </form>
 </section>
 
+<!-- Upgrade User To Super -->
 <section *ngIf="isSuper" class="section narrow">
   <h3 class="section-title">Upgrade user to SUPER</h3>
   <div class="create-form">
@@ -24,6 +27,7 @@
     </button>
   </div>
   <br><br>
+  <!-- Remove User from Application -->
   <h3 class="section-title">Remove user from Application</h3>
   <div class="create-form">
     <select [ngModel]="removeUserIdGlobal" (ngModelChange)="removeUserIdGlobal = $event" name="removeUserGlobal">
@@ -36,22 +40,21 @@
       Remove
     </button>
   </div>
-
 </section>
 
-
+<!-- My Groups Display -->
 <section class="section wide">
   <div *ngIf="myGroups.length === 0" class="empty-msg">
     You’re not in any groups yet.
   </div>
-
-
   <ul class="groups-grid">
     <li *ngFor="let g of myGroups" class="group-card">
       <div class="group-head">
         <div class="group-title">
+          <!-- Group Name -->
           <strong class="group-name">{{ g.name }}</strong>
         </div>
+        <!-- User Role Badge -->
         <div class="group-badges">
           <span class="badge" *ngIf="isSuper">Super</span>
           <span class="badge" *ngIf="isCreator(g)">Creator</span>
@@ -59,14 +62,16 @@
         </div>
       </div>
 
-      <div class="group-actions">
+      <div class="group-actions">      
+        <!-- Leave Group Burron -->
         <button class="btn btn-danger" (click)="leave(g.id)" *ngIf="!isCreator(g) && !isGeneralGroup(g) && !isSuper">
           Leave
         </button>
+        <!-- Rename Group Button-->
         <button class="btn btn-subtle" (click)="rename(g)" *ngIf="canModify(g) && !isGeneralGroup(g)">Rename</button>
-        <button class="btn btn-danger-outline" (click)="remove(g.id)" *ngIf="canModify(g) && !isGeneralGroup(g)">
-          Delete
-        </button>
+        <!-- Delete Group Button -->
+        <button class="btn btn-danger-outline" (click)="remove(g.id)" *ngIf="canModify(g) && !isGeneralGroup(g)">Delete</button>
+        <!-- Admin Tools Drop Down -->
         <button class="btn btn-subtle admin-toggle" *ngIf="canAdmin(g) && !isGeneralGroup(g)"
           (click)="toggleAdmin(g.id)" [attr.aria-expanded]="isAdminOpen(g.id)">
           Admin tools
@@ -77,6 +82,7 @@
       <div *ngIf="canAdmin(g) && !isGeneralGroup(g)" class="admin-panel dropdown" [class.open]="isAdminOpen(g.id)"
         [attr.aria-hidden]="!isAdminOpen(g.id)">
         <div class="row">
+          <!-- Add Member to Group -->
           <label class="label">Add member</label>
           <div class="controls">
             <select [ngModel]="getMap(addMemberUserId, g.id)" (ngModelChange)="setMap(addMemberUserId, g.id, $event)"
@@ -91,11 +97,10 @@
               [disabled]="!getMap(addMemberUserId, g.id)">
               Add
             </button>
-
           </div>
         </div>
 
-
+        <!-- Request promotion to group Admin -->
         <div *ngIf="!isSuper && isAdmin(g)" class="row">
           <label class="label">Request Admin promotion</label>
           <div class="controls">
@@ -111,7 +116,7 @@
             </button>
           </div>
         </div>
-
+        <!-- Promote user to Group Admin (Super Only)-->
         <div *ngIf="isSuper" class="row">
           <label class="label">Promote User</label>
           <div class="controls">
@@ -128,7 +133,7 @@
           </div>
         </div>
 
-
+        <!-- Delete from Group -->
         <div class="row">
           <label class="label">Delete from Group</label>
           <div class="controls">
@@ -145,9 +150,11 @@
             </button>
           </div>
         </div>
+
         <div class="row">
           <label class="label">Channels</label>
           <div class="controls">
+            <!-- Add Channel -->
             <button class="btn" (click)="addChannel(g.id)">Add channel</button>
             <div class="stack">
               <select (click)="loadChannels(g.id)" [ngModel]="getMap(removeChannelId, g.id)"
@@ -157,6 +164,7 @@
                   {{ c.name }}
                 </option>
               </select>
+              <!-- Remove Channel -->
               <button class="btn btn-subtle" (click)="removeChannel(g.id)">Remove</button>
             </div>
           </div>
@@ -164,6 +172,7 @@
 
 
         <div class="danger-panel">
+          <!-- Ban User & Report -->
           <h4 class="subheading">Ban user & report</h4>
           <div class="row">
             <label class="label">Channel</label>
@@ -175,9 +184,9 @@
                   {{ c.name }}
                 </option>
               </select>
-
             </div>
           </div>
+
           <div class="row">
             <label class="label">User</label>
             <div class="controls">
@@ -188,9 +197,9 @@
                   {{ displayName(u) }}
                 </option>
               </select>
-
             </div>
           </div>
+
           <div class="row">
             <label class="label">Reason</label>
             <div class="controls">
@@ -203,12 +212,11 @@
             </div>
           </div>
 
+          <!-- Banned User Lists & Unban Button -->
           <div class="row unban-section" *ngIf="isSuper">
             <label class="label">Banned</label>
             <div class="controls">
-
               <ng-container *ngIf="getMap(banChannel, g.id) as chId; else pickAChannel">
-
                 <div class="banned-list" *ngIf="getBannedUsers(g.id).length; else noneBanned">
                   <div class="banned-item" *ngFor="let u of getBannedUsers(g.id)">
                     <span>{{ displayName(u) }}</span>
@@ -231,15 +239,14 @@
           </div>
         </div>
 
-
-
-
+       <!-- Pending Promotions Display -->
         <h4 *ngIf="isSuper" class="subheading">Pending Admin promotions</h4>
         <div class="pending" *ngIf="isSuper && getList(promoteRequests, g.id).length === 0">None</div>
         <ng-container *ngIf="isSuper">
           <div class="pending-item" *ngFor="let uid of getList(promoteRequests, g.id)">
             <span>{{ username(uid) }}</span>
             <div class="controls">
+              <!-- Approve/Reject Promotion -->
               <button class="btn btn-accent" (click)="approvePromotion(g.id, uid)">Approve</button>
               <button class="btn btn-subtle" (click)="rejectPromotion(g.id, uid)">Reject</button>
             </div>
@@ -251,10 +258,12 @@
 </section>
 
 <section *ngIf="!isSuper && discoverGroups.length" class="discover card">
+  <!-- Other Group Display -->
   <h3 class="card-title">Other Groups</h3>
   <ul class="discover-list">
     <li *ngFor="let g of discoverGroups" class="discover-item">
       <strong class="discover-name">{{ g.name }}</strong>
+      <!-- Request to Join Group button -->
       <button (click)="requestToJoin(g.id)" [disabled]="isInGroup(g.id) || hasPendingJoin(g.id)" class="discover-join">
         Request to join
       </button>
@@ -262,6 +271,7 @@
   </ul>
 </section>
 
+<!-- Ban Reports -->
 <section *ngIf="isSuper" class="section wide" style="margin-top:2rem">
   <h3 class="section-title">Ban reports</h3>
 

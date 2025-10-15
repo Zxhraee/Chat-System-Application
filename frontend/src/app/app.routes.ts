@@ -11,13 +11,14 @@ import { ChatComponent } from './pages/chat/chat.component';
 import { RegisterComponent } from './pages/register/register.component';
 import { inject } from '@angular/core';
 
-
+//Ensure Use is Logged in
 export const mustBeLoggedIn: CanActivateFn = () => {
   const auth = inject(AuthService);
   const router = inject(Router);
   return auth.isLoggedIn() ? true : router.createUrlTree(['/login']);
 };
 
+//Check Allowed Roles on route
 export const hasRoles: CanActivateFn = (route) => {
   const auth = inject(AuthService);
   const router = inject(Router);
@@ -27,6 +28,7 @@ export const hasRoles: CanActivateFn = (route) => {
   return ok ? true : router.createUrlTree(['/menu']);
 };
 
+//Routes
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
   { path: 'menu', component: MenuComponent, canActivate: [AuthGuard] },
