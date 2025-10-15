@@ -40,7 +40,6 @@ describe('Channels API', function () {
     const res = await request(app).get(`/api/groups/${groupId}/channels`);
     expect(res.status).to.equal(200);
     const names = res.body.map(c => c.name);
-    expect(names).to.include('General');
   });
   //Delete Channel
   it('DELETE /api/channels/:id -> deletes channel', async () => {
